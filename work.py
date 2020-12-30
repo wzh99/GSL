@@ -15,9 +15,8 @@ class Workload:
         """
         Constructor.
         :param mod: Relay IR module defining computation graph of the model.
-        :param params: Mapping from parameter names to values.
-            Internally, the values are stored as np.ndarray. NDArray values will be converted to
-            that type.
+        :param params: Mapping from parameter names to values. Internally, the values are stored
+        as np.ndarray. NDArray values will be converted to that type.
         """
         self.mod = mod
         self.params = dict([(key, self._cvt_param(val)) for key, val in params.items()])
