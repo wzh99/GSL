@@ -1,5 +1,7 @@
 from graph import *
+from work import Workload
 from subst import Substitution
+from tvm import relay
 
 
 def test_transpose_transpose():
@@ -22,15 +24,23 @@ def test_bias_add_add():
     b1 = Var()
     b2 = Var()
 
-    # Source graph: (x1 + b1) + (x2 + b2)
+    # Source pattern: (x1 + b1) + (x2 + b2)
     y1 = Call('nn.bias_add', x1, b1, axis=1) + Call('nn.bias_add', x2, b2, axis=1)
 
-    # Target graph: (x1 + x2) + (b1 + b2)
+    # Target pattern: (x1 + x2) + (b1 + b2)
     y2 = Call('nn.bias_add', x1 + x2, b1 + b2, axis=y1.axis)
-    # y2 = Call('concatenate', x1)
 
     # Build substitution
     subst = Substitution(y1, y2)
+
+    # Create source graph
+    x1 = relay.var('x1', shape=[4, 3, 32, 32])
+    x2 = relay.var('x2', shape=[4, 3, 32, 32])
+    b1 = relay.var('b1', shape=[3])
+    b2 = relay.var('b2', shape=[3])
+    y = relay.nn.bias_add(x1, b1) + relay.nn.bias_add(x2, b2)
+    wl = Workload.from_expr(y)
+    wl = subst.apply(wl)
     pass
 
 

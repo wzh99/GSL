@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, List, Tuple
 
 import numpy as np
 from graphviz import Digraph
@@ -16,7 +16,7 @@ class Workload:
         Constructor.
         :param mod: Relay IR module defining computation graph of the model.
         :param params: Mapping from parameter names to values. Internally, the values are stored
-        as np.ndarray. NDArray values will be converted to that type.
+        in `np.ndarray`s. NDArray values will be converted to that type.
         """
         self.mod = mod
         self.params = dict([(key, self._cvt_param(val)) for key, val in params.items()])
@@ -27,6 +27,27 @@ class Workload:
         if isinstance(x, runtime.NDArray):
             x = x.asnumpy()
         return x
+
+    @staticmethod
+    def from_expr(expr: relay.Expr):
+        """
+        Create a workload from a Relay expression. All free variables become parameters of the
+        function. Model parameters will be randomly generated.
+        :param expr: Body expression of function
+        :return: Workload object created from this expression.
+        """
+        # Create module
+        free_vars: List[relay.Var] = relay.analysis.free_vars(expr)
+        main = relay.Function(free_vars, expr)
+        mod = ir.IRModule(functions={'main': main})
+
+        # Generate random parameters
+        params: Dict[str, np.ndarray] = dict()
+        for v in free_vars:
+            shape: Tuple[int] = v.type_annotation.concrete_shape
+            params[v.name_hint] = np.random.randn(*shape)
+            
+        return Workload(mod, params)
 
     def visualize(self, path: str = ''):
         """
