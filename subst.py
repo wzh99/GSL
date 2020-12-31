@@ -1,10 +1,13 @@
 from inspect import signature, Parameter
-from types import FunctionType
 from typing import Set
+
+from tvm import relay, ir, transform
 from tvm.relay import dataflow_pattern as dfp
 
 import op
 from graph import *
+from work import Workload
+from attrib import *
 
 
 class Substitution:
@@ -19,21 +22,39 @@ class Substitution:
         :param tgt: Target graph pattern.
         """
         # Check source and target
-        src_checker = _SourceChecker()
+        src_checker = _SrcPatChecker()
         src_checker.visit(src)
-        _TargetChecker(src_checker.wildcard_vars).visit(tgt)
+        _TgtPatChecker(src_checker.wildcard_vars).visit(tgt)
 
-        # Store source and target
-        self.src = src
-        self.tgt = tgt
+        # Create expression rewriter
+        self.rewriter = _ExprRewriter(src, tgt)
 
-        # Create source pattern for matching in Relay data-flow callback
-        self.src_pat = _PatternCreator().visit(src)
-        pass
+    def apply(self, wl: Workload, fold_param: bool = True) -> Workload:
+        """
+        Apply substitution to workload.
+        :param wl: Workload whose graph is to be altered.
+        :param fold_param: whether to pre-compute nodes whose operands are already available.
+        :return New workload after application of substitution rule.
+        """
+        # Apply substitution to graph
+        new_mod = _SubstFuncPass(self.rewriter)(wl.mod)
+        new_wl = Workload(new_mod, wl.params)
+
+        # Filter out unused parameters
+        param_names = set([p.name_hint for p in new_mod['main'].params])
+        used_params = dict()
+        for name, val in new_wl.params.items():
+            if param_names.__contains__(name):
+                used_params[name] = val
+        new_wl.params = used_params
+
+        return new_wl
 
 
-class _SourceChecker(NodeVisitor):
-    wildcard_vars: Set[Union[Wildcard, Var]] = set()
+class _SrcPatChecker(NodeVisitor):
+    def __init__(self):
+        super().__init__()
+        self.wildcard_vars: Set[Union[Wildcard, Var]] = set()
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
         self.wildcard_vars.add(wildcard)
@@ -50,8 +71,15 @@ class _SourceChecker(NodeVisitor):
         num_input = op.num_inputs[func]
         _check_num_input(num_input, call)
 
-        # Check whether specified attributes really exist
-        _validate_attrib(func, call)
+        # Check whether op has specified attributes and they are constants
+        func_attrib = list(signature(func).parameters.keys())[num_input:]
+        for name, attrib in call.attrib.items():
+            if not func_attrib.__contains__(name):
+                raise AttributeError('Unknown attribute name \'{}\'.'.format(name))
+            if not isinstance(attrib, ConstAttrib):
+                raise AttributeError(
+                    'Non-constant attribute \'{}\' in source graph pattern.'.format(name)
+                )
 
 
 def _check_num_input(num_input: int, call: Call):
@@ -61,15 +89,7 @@ def _check_num_input(num_input: int, call: Call):
         ))
 
 
-def _validate_attrib(func: FunctionType, call: Call):
-    num_input = op.num_inputs[func]
-    func_attrib = list(signature(func).parameters.keys())[num_input:]
-    for arg in call.attrib.keys():
-        if not func_attrib.__contains__(arg):
-            raise AttributeError('Invalid attribute: {}.'.format(arg))
-
-
-class _TargetChecker(NodeVisitor):
+class _TgtPatChecker(NodeVisitor):
     def __init__(self, wildcard_vars: Set[Union[Wildcard, Var]]):
         super().__init__()
         self.wildcard_vars = wildcard_vars
@@ -96,7 +116,10 @@ class _TargetChecker(NodeVisitor):
         _check_num_input(num_input, call)
 
         # Check whether specified attributes really exist
-        _validate_attrib(func, call)
+        func_attrib = list(signature(func).parameters.keys())[num_input:]
+        for name in call.attrib.keys():
+            if not func_attrib.__contains__(name):
+                raise AttributeError('Unknown attribute: {}.'.format(name))
 
         # Check whether all non-default attributes are provided
         required = set()
@@ -108,6 +131,26 @@ class _TargetChecker(NodeVisitor):
             raise AttributeError('Attributes {} are not provided for \'{}\'.'.format(
                 tuple(required), call.op
             ))
+
+
+class _ExprRewriter(dfp.DFPatternCallback):
+    def __init__(self, src: Node, tgt: Node):
+        # Initialize fields
+        super().__init__()
+        self.src = src
+        self.tgt = tgt
+
+        # Create source pattern for matching
+        pat_creator = _PatternCreator()
+        self.pattern = pat_creator.visit(src)
+        self.gsl_to_dfp = pat_creator.visited
+
+    def callback(self, pre: relay.Expr, post: relay.Expr, node_map: ir.Map) -> relay.Expr:
+        # Map GSL pattern nodes to computation graph expressions
+        gsl_to_expr = dict([(gsl_node, node_map[dfp_node][0])
+                            for gsl_node, dfp_node in self.gsl_to_dfp.items()])
+
+        return pre
 
 
 class _PatternCreator(NodeVisitor):
@@ -134,3 +177,22 @@ class _PatternCreator(NodeVisitor):
     def visit_getitem(self, getitem: GetItem) -> dfp.DFPattern:
         super().visit_getitem(getitem)
         return dfp.is_tuple_get_item(self.visited[getitem.tup], index=getitem.index)
+
+
+@relay.transform.function_pass(opt_level=0)
+class _SubstFuncPass:
+    def __init__(self, rewriter: _ExprRewriter):
+        self.rewriter = rewriter
+
+    def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
+                           _ctx: transform.PassContext) -> relay.Function:
+        new_body = self.rewriter.rewrite(fn.body)
+        return relay.Function(relay.analysis.free_vars(new_body), new_body)
+
+    def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
+
+
+class _GraphBuilder(NodeVisitor):
+    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
+        super().__init__()
+        self.gsl_to_expr = gsl_to_expr

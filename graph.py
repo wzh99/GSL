@@ -2,7 +2,7 @@ from typing import Union, Dict, Any
 
 import numpy as np
 
-from attrib import GetAttrib
+from attrib import GetAttrib, ConstAttrib
 
 
 class Node:
@@ -68,7 +68,13 @@ class Call(Node):
     def __init__(self, op: str, *args: Node, **attrib):
         self.op = op
         self.args = args
-        self.attrib = attrib
+
+        # Convert values to constant attributes if necessary
+        proc_attrib = attrib.copy()
+        for name, val in attrib.items():
+            if isinstance(val, (bool, int, tuple, list, str)):
+                proc_attrib[name] = ConstAttrib(val)
+        self.attrib = proc_attrib
 
     def __getattr__(self, name: str):
         return GetAttrib(self, name)

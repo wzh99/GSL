@@ -1,5 +1,7 @@
-from typing import Union
 from enum import Enum
+from typing import Union
+
+AttribValueType = Union[bool, int, tuple, list, str]
 
 
 class AttribExpr:
@@ -19,7 +21,7 @@ class ConstAttrib(AttribExpr):
     A compile-time constant attribute value.
     """
 
-    def __init__(self, value: Union[bool, int, tuple, list, str]):
+    def __init__(self, value: AttribValueType):
         self.value = value
 
 
