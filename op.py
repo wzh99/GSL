@@ -1,5 +1,6 @@
-from tvm.relay import *
 from types import FunctionType
+
+from tvm.relay import *
 
 # Specify number of input tensors of Relay API.
 num_inputs = {

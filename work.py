@@ -1,8 +1,8 @@
 from typing import Dict, Union
 
 import numpy as np
-from tvm import ir, runtime, relay
 from graphviz import Digraph
+from tvm import ir, runtime, relay
 
 
 class Workload:

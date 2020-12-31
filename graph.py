@@ -1,5 +1,7 @@
+from typing import Union, Dict, Any
+
 import numpy as np
-from typing import Union, Dict, Any, Generic
+
 from attrib import GetAttrib
 
 
@@ -58,7 +60,7 @@ class Const(Node):
         if isinstance(value, (int, float, list)):
             value = np.array(value)
         if not isinstance(value, np.ndarray):
-            raise RuntimeError('Not a constant')
+            raise TypeError('Not a constant')
         self.value = value
 
 
@@ -87,7 +89,8 @@ class GetItem(Node):
 
 
 class NodeVisitor:
-    visited: Dict[Node, Any] = dict()
+    def __init__(self):
+        self.visited: Dict[Node, Any] = dict()
 
     def visit(self, node: Node):
         if self.visited.__contains__(node):
@@ -105,7 +108,7 @@ class NodeVisitor:
         elif isinstance(node, GetItem):
             ret = self.visit_getitem(node)
         else:
-            raise RuntimeError('Unhandled node case')
+            raise RuntimeError('Unhandled node case.')
         self.visited[node] = ret
         return ret
 

@@ -1,6 +1,5 @@
 from graph import *
 from subst import Substitution
-from tvm.relay import dataflow_pattern as dfp
 
 
 def test_transpose_transpose():
