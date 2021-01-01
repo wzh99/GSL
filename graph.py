@@ -1,29 +1,41 @@
-from typing import Union, Dict, Any
+from typing import Dict, Any
 
 import numpy as np
 
-from attrib import GetAttrib, ConstAttrib
+from attrib import *
 
 
 class Node:
     """
-    Base class for all graph nodes. This class cannot be instantiated.
+    Base class for all graph pattern nodes. This class cannot be instantiated.
     """
 
     def __neg__(self):
         return Call('negative', self)
 
     def __add__(self, other):
-        return Call('add', self, other)
+        return Call('add', self, to_node(other))
+
+    def __radd__(self, other):
+        return Call('add', to_node(other), self)
 
     def __sub__(self, other):
-        return Call('subtract', self, other)
+        return Call('subtract', self, to_node(other))
+
+    def __rsub__(self, other):
+        return Call('subtract', to_node(other), self)
 
     def __mul__(self, other):
-        return Call('multiply', self, other)
+        return Call('multiply', self, to_node(other))
+
+    def __rmul__(self, other):
+        return Call('multiply', to_node(other), self)
 
     def __truediv__(self, other):
-        return Call('divide', self, other)
+        return Call('divide', self, to_node(other))
+
+    def __rtruediv__(self, other):
+        return Call('divide', to_node(other), self)
 
 
 class Wildcard(Node):
@@ -42,12 +54,16 @@ class Var(Node):
     pass
 
 
+ConstValueType = Union[int, float, list, np.ndarray]
+const_value_class = (int, float, list, np.ndarray)
+
+
 class Const(Node):
     """
     A constant nodes stores constants in graph.
     """
 
-    def __init__(self, value: Union[int, float, list, np.ndarray, None]):
+    def __init__(self, value: Union[ConstValueType, None]):
         """
         Constructor
         :param value: In source graph, if the value is provided, it only matches nodes with the
@@ -64,25 +80,38 @@ class Const(Node):
         self.value = value
 
 
+def to_node(val: Union[Node, ConstValueType]) -> Node:
+    """
+    Create a graph pattern node with given value
+    :param val: All types of values that are or can be converted to an graph pattern node.
+    :return: Graph pattern node created from given value.
+    """
+    if isinstance(val, Node):
+        return val
+    elif isinstance(val, const_value_class):
+        return Const(val)
+    else:
+        raise TypeError('Cannot convert to graph pattern node.')
+
+
 class Call(Node):
-    def __init__(self, op: str, *args: Node, **attrib):
+    def __init__(self, op: str, *args: Node, **raw_attrib):
         self.op = op
         self.args = args
 
         # Convert values to constant attributes if necessary
-        proc_attrib = attrib.copy()
-        for name, val in attrib.items():
-            if isinstance(val, (bool, int, tuple, list, str)):
-                proc_attrib[name] = ConstAttrib(val)
-        self.attrib = proc_attrib
+        attrib = raw_attrib.copy()
+        for name, val in raw_attrib.items():
+            attrib[name] = to_attrib(val)
+        self.attrib = attrib
 
     def __getattr__(self, name: str):
         return GetAttrib(self, name)
 
 
 class Tuple(Node):
-    def __init__(self, *fields):
-        self.fields = fields
+    def __init__(self, *raw_fields):
+        self.fields = tuple([to_node(f) for f in raw_fields])
 
     def __getitem__(self, index: int):
         return GetItem(self, index)
@@ -90,6 +119,8 @@ class Tuple(Node):
 
 class GetItem(Node):
     def __init__(self, tup: Tuple, index: int):
+        if index >= len(tup.fields):
+            raise ValueError('Index {} out of bound.'.format(index))
         self.tup = tup
         self.index = index
 
@@ -114,7 +145,7 @@ class NodeVisitor:
         elif isinstance(node, GetItem):
             ret = self.visit_getitem(node)
         else:
-            raise RuntimeError('Unhandled node case.')
+            raise RuntimeError('Unknown node type.')
         self.visited[node] = ret
         return ret
 

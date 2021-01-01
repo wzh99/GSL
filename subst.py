@@ -1,4 +1,5 @@
 from inspect import signature, Parameter
+from types import FunctionType
 from typing import Set
 
 from tvm import relay, ir, transform
@@ -7,7 +8,6 @@ from tvm.relay import dataflow_pattern as dfp
 import op
 from graph import *
 from work import Workload
-from attrib import *
 
 
 class Substitution:
@@ -66,27 +66,24 @@ class _SrcPatChecker(NodeVisitor):
         # Visit arguments
         super().visit_call(call)
 
-        # Check number of inputs
+        # Check call node
         func = op.name_to_func(call.op)
-        num_input = op.num_inputs[func]
-        _check_num_input(num_input, call)
-
-        # Check whether op has specified attributes and they are constants
-        func_attrib = list(signature(func).parameters.keys())[num_input:]
-        for name, attrib in call.attrib.items():
-            if not func_attrib.__contains__(name):
-                raise AttributeError('Unknown attribute name \'{}\'.'.format(name))
-            if not isinstance(attrib, ConstAttrib):
-                raise AttributeError(
-                    'Non-constant attribute \'{}\' in source graph pattern.'.format(name)
-                )
+        _check_call(func, call)
 
 
-def _check_num_input(num_input: int, call: Call):
+def _check_call(func: FunctionType, call: Call):
+    # Check number of inputs
+    num_input = op.num_inputs[func]
     if num_input != len(call.args):
-        raise ValueError('Expect {} input tensor(s), got {}.'.format(
-            num_input, len(call.args)
-        ))
+        raise ValueError(
+            'Expect {} input tensor(s), got {}.'.format(num_input, len(call.args))
+        )
+
+    # Check whether names of specified attributes actually exist
+    func_attrib = list(signature(func).parameters.keys())[num_input:]
+    for name in call.attrib.keys():
+        if not func_attrib.__contains__(name):
+            raise AttributeError('Unknown attribute name \'{}\'.'.format(name))
 
 
 class _TgtPatChecker(NodeVisitor):
@@ -110,18 +107,12 @@ class _TgtPatChecker(NodeVisitor):
         # Visit arguments
         super().visit_call(call)
 
-        # Check number of inputs
+        # Check call node
         func = op.name_to_func(call.op)
-        num_input = op.num_inputs[func]
-        _check_num_input(num_input, call)
-
-        # Check whether specified attributes really exist
-        func_attrib = list(signature(func).parameters.keys())[num_input:]
-        for name in call.attrib.keys():
-            if not func_attrib.__contains__(name):
-                raise AttributeError('Unknown attribute: {}.'.format(name))
+        _check_call(func, call)
 
         # Check whether all non-default attributes are provided
+        num_input = op.num_inputs[func]
         required = set()
         for name, param in list(signature(func).parameters.items())[num_input:]:
             if param.default == Parameter.empty:
@@ -149,6 +140,8 @@ class _ExprRewriter(dfp.DFPatternCallback):
         # Map GSL pattern nodes to computation graph expressions
         gsl_to_expr = dict([(gsl_node, node_map[dfp_node][0])
                             for gsl_node, dfp_node in self.gsl_to_dfp.items()])
+
+        # Check whether source graph satisfies constraints of source pattern
 
         return pre
 
