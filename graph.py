@@ -77,7 +77,7 @@ class Const(Node):
             value = np.array(value)
         if not isinstance(value, np.ndarray):
             raise TypeError('Not a constant')
-        self.value = value
+        self.value: np.ndarray = value
 
 
 def to_node(val: Union[Node, ConstValueType]) -> Node:
@@ -95,15 +95,12 @@ def to_node(val: Union[Node, ConstValueType]) -> Node:
 
 
 class Call(Node):
-    def __init__(self, op: str, *args: Node, **raw_attr):
-        self.op = op
+    def __init__(self, op_name: str, *args, **raw_attr):
+        self.op = op_name
         self.args = args
 
-        # Convert values to constant attributes if necessary
-        attrs = raw_attr.copy()
-        for name, val in raw_attr.items():
-            attrs[name] = to_attr(val)
-        self.attrs = attrs
+        # Convert raw attribute values to attribute nodes if necessary
+        self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
 
     def __getattr__(self, name: str):
         return GetAttr(self, name)

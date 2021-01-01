@@ -104,6 +104,12 @@ class _TgtPatChecker(NodeVisitor):
                 'Target graph contains variable node not defined in source graph.'
             )
 
+    def visit_const(self, const: Const) -> Any:
+        if const.value is None:
+            raise ValueError(
+                'Constant node in target graph must contain a value.'
+            )
+
     def visit_call(self, call: Call) -> Any:
         # Visit arguments
         super().visit_call(call)
@@ -125,6 +131,19 @@ class _TgtPatChecker(NodeVisitor):
             ))
 
 
+@relay.transform.function_pass(opt_level=0)
+class _SubstFuncPass:
+    def __init__(self, rewriter):
+        self.rewriter = rewriter
+
+    def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
+                           _ctx: transform.PassContext) -> relay.Function:
+        new_body = self.rewriter.rewrite(fn.body)
+        return relay.Function(relay.analysis.free_vars(new_body), new_body)
+
+    def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
+
+
 class _ExprRewriter(dfp.DFPatternCallback):
     def __init__(self, src: Node, tgt: Node):
         # Initialize fields
@@ -138,27 +157,18 @@ class _ExprRewriter(dfp.DFPatternCallback):
         self.gsl_to_dfp = pat_creator.visited
 
     def callback(self, pre: relay.Expr, post: relay.Expr, node_map: ir.Map) -> relay.Expr:
-        # Map GSL pattern nodes to computation graph expressions
+        # Map graph pattern nodes to real graph expressions
         gsl_to_expr = dict([(gsl_node, node_map[dfp_node][0])
                             for gsl_node, dfp_node in self.gsl_to_dfp.items()])
 
-        # Check whether source graph satisfies constraints of source pattern
-        for gsl_node, expr in gsl_to_expr.items():
-            if not self._match_src_attr(gsl_node, expr, gsl_to_expr):
-                return pre  # failed to match, don't modify graph
+        # Further check source graph with additional constraints
+        try:
+            _SrcGraphMatcher(gsl_to_expr).visit(self.src)
+        except _SrcNotMatchException:
+            return pre  # failed to match, don't modify graph
 
         # Build target graph
         return _GraphBuilder(gsl_to_expr).visit(self.tgt)
-
-    @staticmethod
-    def _match_src_attr(gsl_node: Node, expr: relay.Expr,
-                        gsl_to_expr: Dict[Node, relay.Expr]) -> bool:
-        if not isinstance(gsl_node, Call):  # other kind of nodes have no attributes
-            return True
-        for name, attr in gsl_node.attrs.items():
-            if expr.attrs[name] != _AttrEvaluator(gsl_to_expr).visit(attr):
-                return False
-        return True
 
 
 class _PatternCreator(NodeVisitor):
@@ -187,17 +197,26 @@ class _PatternCreator(NodeVisitor):
         return dfp.is_tuple_get_item(self.visited[getitem.tup], index=getitem.index)
 
 
-@relay.transform.function_pass(opt_level=0)
-class _SubstFuncPass:
-    def __init__(self, rewriter: _ExprRewriter):
-        self.rewriter = rewriter
+class _SrcNotMatchException(Exception):
+    pass
 
-    def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
-                           _ctx: transform.PassContext) -> relay.Function:
-        new_body = self.rewriter.rewrite(fn.body)
-        return relay.Function(relay.analysis.free_vars(new_body), new_body)
 
-    def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
+class _SrcGraphMatcher(NodeVisitor):
+    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
+        super().__init__()
+        self.gsl_to_expr = gsl_to_expr
+
+    def visit_const(self, const: Const) -> Any:
+        expr = self.gsl_to_expr[const]
+        if (const.value is not None) and \
+                (not np.array_equal(const.value, np.array(expr.value))):
+            raise _SrcNotMatchException()
+
+    def visit_call(self, call: Call) -> Any:
+        expr = self.gsl_to_expr[call]
+        for name, attr in call.attrs.items():
+            if expr.attrs[name] != _AttrEvaluator(self.gsl_to_expr).visit(attr):
+                raise _SrcNotMatchException()
 
 
 class _AttrEvaluator(AttrVisitor):

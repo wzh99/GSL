@@ -21,6 +21,10 @@ num_inputs = {
     split: 1,
     reshape: 1,
     transpose: 1,
+    expand_dims: 1,
+
+    # Linear algebra
+    matrix_set_diag: 2,
 
     # Neural network operators
     nn.conv2d: 2,
@@ -29,7 +33,6 @@ num_inputs = {
     nn.max_pool2d: 1,
     nn.relu: 1,
     nn.global_avg_pool2d: 1,
-    nn.global_max_pool2d: 1,
     nn.dense: 2,
     nn.batch_matmul: 2,
 }

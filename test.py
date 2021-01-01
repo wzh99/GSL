@@ -1,7 +1,8 @@
-from graph import *
-from work import Workload
-from subst import Substitution
 from tvm import relay
+
+from graph import *
+from subst import Substitution
+from work import Workload
 
 
 def test_transpose_transpose():
@@ -25,6 +26,7 @@ def test_bias_add_add():
     b2 = relay.var('b2', shape=[3])
     y = relay.nn.bias_add(x1, b1) + relay.nn.bias_add(x2, b2)
     wl = Workload.from_expr(y)
+    print(wl.mod)
 
     # Input
     x1 = Wildcard()

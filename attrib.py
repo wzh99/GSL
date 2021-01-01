@@ -1,9 +1,10 @@
 from enum import Enum
-from typing import Union
+from typing import Union, List
+
 import op
 
-AttribValueType = Union[bool, int, tuple, list, str]
-attrib_value_class = (bool, int, tuple, list, str)
+AttrValueType = Union[bool, int, float, str]
+attr_value_class = (bool, int, float, str)
 
 
 class AttrExpr:
@@ -41,24 +42,8 @@ class ConstAttr(AttrExpr):
     A compile-time constant attribute value.
     """
 
-    def __init__(self, value: AttribValueType):
+    def __init__(self, value: AttrValueType):
         self.value = value
-
-
-def to_attr(val: Union[AttrExpr, AttribValueType]) -> AttrExpr:
-    """
-    Create an attribute expression with given value.
-    :param val: All types of values that are or can be converted to an attribute expression.
-    :return: Attribute expression created from given value.
-    """
-    if isinstance(val, AttrExpr):
-        return val
-    elif isinstance(val, attrib_value_class):
-        return ConstAttr(val)
-    else:
-        raise ValueError(
-            'Cannot convert value of type \'{}\' to attribute.'.format(val.__class__)
-        )
 
 
 class GetAttr(AttrExpr):
@@ -79,6 +64,74 @@ class GetAttr(AttrExpr):
         self.name = name
 
 
+class ListAttr(AttrExpr):
+    """
+    Create a list attribute expression.
+    """
+
+    def __init__(self, fields: List[Union[AttrExpr, AttrValueType]]):
+        self.fields = [to_attr(e) for e in fields]
+
+    def __getitem__(self, index: int):
+        return ListGetItemAttr(self, index)
+
+
+class ListGetItemAttr(AttrExpr):
+    """
+    Get item from a list attribute.
+    """
+
+    def __init__(self, list_attr: ListAttr, index: int):
+        if index >= len(list_attr.fields):
+            raise ValueError('Index {} out of bound.'.format(index))
+        self.list = list_attr
+        self.index = index
+
+
+class TupleAttr(AttrExpr):
+    """
+    Create a list attribute expression.
+    """
+
+    def __init__(self, *fields):
+        self.fields = tuple([to_attr(e) for e in fields])
+
+    def __getitem__(self, index: int):
+        return TupleGetItemAttr(self, index)
+
+
+class TupleGetItemAttr(AttrExpr):
+    """
+    Get item from a tuple attribute.
+    """
+
+    def __init__(self, tup_attr: TupleAttr, index: int):
+        if index >= len(tup_attr.fields):
+            raise ValueError('Index {} out of bound'.format(index))
+        self.tup = tup_attr
+        self.index = index
+
+
+def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list]) -> AttrExpr:
+    """
+    Create an attribute expression with given value.
+    :param val: All types of values that are or can be converted to an attribute expression.
+    :return: Attribute expression created from given value.
+    """
+    if isinstance(val, AttrExpr):
+        return val
+    elif isinstance(val, attr_value_class):
+        return ConstAttr(val)
+    elif isinstance(val, list):
+        return ListAttr(val)
+    elif isinstance(val, tuple):
+        return TupleAttr(val)
+    else:
+        raise ValueError(
+            'Cannot convert value of type \'{}\' to attribute.'.format(val.__class__)
+        )
+
+
 class BinaryOp(Enum):
     ADD = '+'
     SUB = '-'
@@ -91,20 +144,28 @@ class BinaryExpr(AttrExpr):
     Binary expression of attribute values.
     """
 
-    def __init__(self, op: BinaryOp, lhs: AttrExpr, rhs: AttrExpr):
-        self.op = op
+    def __init__(self, op_name: BinaryOp, lhs: AttrExpr, rhs: AttrExpr):
+        self.op = op_name
         self.lhs = lhs
         self.rhs = rhs
 
 
 class AttrVisitor:
-    def visit(self, attrib: AttrExpr):
-        if isinstance(attrib, ConstAttr):
-            return self.visit_const(attrib)
-        elif isinstance(attrib, GetAttr):
-            return self.visit_get_attr(attrib)
-        elif isinstance(attrib, BinaryExpr):
-            return self.visit_binary(attrib)
+    def visit(self, attr: AttrExpr):
+        if isinstance(attr, ConstAttr):
+            return self.visit_const(attr)
+        elif isinstance(attr, GetAttr):
+            return self.visit_get_attr(attr)
+        elif isinstance(attr, ListAttr):
+            return self.visit_list(attr)
+        elif isinstance(attr, ListGetItemAttr):
+            return self.visit_list_getitem(attr)
+        elif isinstance(attr, TupleAttr):
+            return self.visit_tuple(attr)
+        elif isinstance(attr, TupleGetItemAttr):
+            return self.visit_tuple_getitem(attr)
+        elif isinstance(attr, BinaryExpr):
+            return self.visit_binary(attr)
         else:
             raise RuntimeError('Unknown attribute type.')
 
@@ -112,6 +173,18 @@ class AttrVisitor:
         pass
 
     def visit_get_attr(self, get_attr: GetAttr):
+        pass
+
+    def visit_list(self, list_attr: ListAttr):
+        pass
+
+    def visit_list_getitem(self, getitem: ListGetItemAttr):
+        pass
+
+    def visit_tuple(self, tup_attr: TupleAttr):
+        pass
+
+    def visit_tuple_getitem(self, getitem: TupleGetItemAttr):
         pass
 
     def visit_binary(self, binary: BinaryExpr):
