@@ -95,18 +95,18 @@ def to_node(val: Union[Node, ConstValueType]) -> Node:
 
 
 class Call(Node):
-    def __init__(self, op: str, *args: Node, **raw_attrib):
+    def __init__(self, op: str, *args: Node, **raw_attr):
         self.op = op
         self.args = args
 
         # Convert values to constant attributes if necessary
-        attrib = raw_attrib.copy()
-        for name, val in raw_attrib.items():
-            attrib[name] = to_attrib(val)
-        self.attrib = attrib
+        attrs = raw_attr.copy()
+        for name, val in raw_attr.items():
+            attrs[name] = to_attr(val)
+        self.attrs = attrs
 
     def __getattr__(self, name: str):
-        return GetAttrib(self, name)
+        return GetAttr(self, name)
 
 
 class Tuple(Node):

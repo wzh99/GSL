@@ -5,7 +5,6 @@ from typing import Set
 from tvm import relay, ir, transform
 from tvm.relay import dataflow_pattern as dfp
 
-import op
 from graph import *
 from work import Workload
 
@@ -67,7 +66,7 @@ class _SrcPatChecker(NodeVisitor):
         super().visit_call(call)
 
         # Check call node
-        func = op.name_to_func(call.op)
+        func = op.get_func(call.op)
         _check_call(func, call)
 
 
@@ -79,11 +78,13 @@ def _check_call(func: FunctionType, call: Call):
             'Expect {} input tensor(s), got {}.'.format(num_input, len(call.args))
         )
 
-    # Check whether names of specified attributes actually exist
-    func_attrib = list(signature(func).parameters.keys())[num_input:]
-    for name in call.attrib.keys():
-        if not func_attrib.__contains__(name):
-            raise AttributeError('Unknown attribute name \'{}\'.'.format(name))
+    # Check if attributes really exists in op
+    attr_names = op.get_func_attr_names(func)
+    for name, val in call.attrs.items():
+        if not attr_names.__contains__(name):
+            raise AttributeError(
+                'Attribute \'{}\' not found in op \'{}\'.'.format(name, call.op)
+            )
 
 
 class _TgtPatChecker(NodeVisitor):
@@ -108,7 +109,7 @@ class _TgtPatChecker(NodeVisitor):
         super().visit_call(call)
 
         # Check call node
-        func = op.name_to_func(call.op)
+        func = op.get_func(call.op)
         _check_call(func, call)
 
         # Check whether all non-default attributes are provided
@@ -117,9 +118,9 @@ class _TgtPatChecker(NodeVisitor):
         for name, param in list(signature(func).parameters.items())[num_input:]:
             if param.default == Parameter.empty:
                 required.add(name)
-        required.difference_update(call.attrib.keys())
+        required.difference_update(call.attrs.keys())
         if len(required) != 0:
-            raise AttributeError('Attributes {} are not provided for \'{}\'.'.format(
+            raise AttributeError('Attributes {} are not provided for op \'{}\'.'.format(
                 tuple(required), call.op
             ))
 
@@ -142,8 +143,22 @@ class _ExprRewriter(dfp.DFPatternCallback):
                             for gsl_node, dfp_node in self.gsl_to_dfp.items()])
 
         # Check whether source graph satisfies constraints of source pattern
+        for gsl_node, expr in gsl_to_expr.items():
+            if not self._match_src_attr(gsl_node, expr, gsl_to_expr):
+                return pre  # failed to match, don't modify graph
 
-        return pre
+        # Build target graph
+        return _GraphBuilder(gsl_to_expr).visit(self.tgt)
+
+    @staticmethod
+    def _match_src_attr(gsl_node: Node, expr: relay.Expr,
+                        gsl_to_expr: Dict[Node, relay.Expr]) -> bool:
+        if not isinstance(gsl_node, Call):  # other kind of nodes have no attributes
+            return True
+        for name, attr in gsl_node.attrs.items():
+            if expr.attrs[name] != _AttrEvaluator(gsl_to_expr).visit(attr):
+                return False
+        return True
 
 
 class _PatternCreator(NodeVisitor):
@@ -185,7 +200,43 @@ class _SubstFuncPass:
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
+class _AttrEvaluator(AttrVisitor):
+    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
+        self.gsl_to_expr = gsl_to_expr
+
+    def visit_const(self, const: ConstAttr):
+        return const.value
+
+    def visit_get_attr(self, get_attr: GetAttr):
+        return self.gsl_to_expr[get_attr.node].attrs[get_attr.name]
+
+    def visit_binary(self, binary: BinaryExpr):
+        raise NotImplementedError()
+
+
 class _GraphBuilder(NodeVisitor):
     def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
         super().__init__()
         self.gsl_to_expr = gsl_to_expr
+
+    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+        return self.gsl_to_expr[wildcard]
+
+    def visit_var(self, var: Var) -> Any:
+        return self.gsl_to_expr[var]
+
+    def visit_const(self, const: Const) -> Any:
+        return relay.const(const.value)
+
+    def visit_call(self, call: Call) -> Any:
+        args = [self.visit(a) for a in call.args]
+        attrs = dict([(name, _AttrEvaluator(self.gsl_to_expr).visit(attr))
+                      for name, attr in call.attrs.items()])
+        func = op.get_func(call.op)
+        return func(*args, **attrs)
+
+    def visit_tuple(self, tp: Tuple) -> Any:
+        return relay.Tuple([self.visit(f) for f in tp.fields])
+
+    def visit_getitem(self, getitem: GetItem) -> Any:
+        return relay.TupleGetItem(self.visit(getitem.tup), getitem.index)
