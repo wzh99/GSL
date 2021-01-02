@@ -1,6 +1,7 @@
 from typing import Dict, Any
 
 import numpy as np
+import op
 
 from attrib import *
 
@@ -58,6 +59,8 @@ class Var(Node):
     attrs = ['shape', 'dtype']
 
     def __getattr__(self, name: str):
+        if not Var.attrs.__contains__(name):
+            raise AttributeError('Attribute \'{}\' not found in variable node.'.format(name))
         return GetAttr(self, name)
 
 
@@ -68,7 +71,7 @@ class Const(Node):
     """
     A constant nodes stores constants in graph.
     """
-    value_class = (int, float, list, np.ndarray)
+    value_class = (int, float, list, np.ndarray, AttrExpr)
 
     def __init__(self, value: Union[ConstValueType, AttrExpr, None]):
         """
@@ -130,6 +133,12 @@ class Call(Node):
                 )
 
     def __getattr__(self, name: str):
+        func = op.get_func(self.op)
+        attr_names = op.get_func_attr_names(func)
+        if not attr_names.__contains__(name):
+            raise AttributeError(
+                'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
+            )
         return GetAttr(self, name)
 
 

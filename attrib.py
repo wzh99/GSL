@@ -1,8 +1,6 @@
 from enum import Enum
 from typing import Union, List
 
-import op
-
 AttrValueType = Union[bool, int, float, str]
 attr_value_class = (bool, int, float, str)
 
@@ -52,22 +50,6 @@ class GetAttr(AttrExpr):
     """
 
     def __init__(self, node, name: str):
-        from graph import Call, Var
-
-        if isinstance(node, Call):
-            # Check if the call node has attribute of this name
-            func = op.get_func(node.op)
-            attr_names = op.get_func_attr_names(func)
-            if not attr_names.__contains__(name):
-                raise AttributeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, node.op)
-                )
-        elif isinstance(node, Var):
-            if not Var.attrs.__contains__(name):
-                raise AttributeError(
-                    'Attribute \'{}\' not found in variable node.'.format(name)
-                )
-
         self.node = node
         self.name = name
 

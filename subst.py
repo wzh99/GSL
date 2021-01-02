@@ -27,7 +27,7 @@ class Substitution:
         # Create expression rewriter
         self.rewriter = _ExprRewriter(src, tgt)
 
-    def apply(self, wl: Workload, fold_param: bool = True) -> Workload:
+    def __call__(self, wl: Workload, fold_param: bool = True) -> Workload:
         """
         Apply substitution to workload.
         :param wl: Workload whose graph is to be altered.
@@ -119,7 +119,7 @@ class _TgtAttrChecker(AttrVisitor):
     def visit_get_attr(self, get_attr: GetAttr):
         if not self.src_nodes.__contains__(get_attr.node):
             raise AttributeError(
-                'Attribute in target pattern refers to nodes not defined in source graph.'
+                'Attribute in target pattern refers to nodes is not defined in source graph.'
             )
 
 

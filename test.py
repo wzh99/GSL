@@ -6,6 +6,13 @@ from work import Workload
 
 
 def test_transpose_transpose():
+    # Source graph
+    x = relay.var('x', shape=[4, 16, 32])
+    x = relay.transpose(x, axes=[0, 2, 1])
+    x = relay.transpose(x, axes=[0, 2, 1])
+    wl = Workload.from_expr(x)
+    print(wl.mod)
+
     # Input
     x = Wildcard()
 
@@ -15,11 +22,17 @@ def test_transpose_transpose():
 
     # Target graph: A
     y2 = x
-    pass
+
+    # Build substitution
+    subst = Substitution(y1, y2)
+
+    # Apply substitution
+    wl = subst(wl)
+    print(wl.mod)
 
 
 def test_bias_add_add():
-    # Create source graph
+    # Source graph
     x1 = relay.var('x1', shape=[4, 3, 32, 32])
     x2 = relay.var('x2', shape=[4, 3, 32, 32])
     b1 = relay.var('b1', shape=[3])
@@ -46,7 +59,7 @@ def test_bias_add_add():
     subst = Substitution(y1, y2)
 
     # Apply substitution
-    wl = subst.apply(wl)
+    wl = subst(wl)
     print(wl.mod)
 
 
@@ -77,14 +90,14 @@ def test_conv_bn():
     y1 = bn[0]
 
     # Target pattern
-    k = gamma / Call('sqrt', moving_var + Const(bn.epsilon))
+    k = gamma / Call('sqrt', moving_var + bn.epsilon)
     out_chan = gamma.shape[0]
     zeros = Call('zeros', shape=(out_chan, out_chan), dtype=w.dtype)
     diag = Call('expand_dims', Call('matrix_set_diag', zeros, k), axis=0)
     conv_w = Call('reshape', w, newshape=(1, w.shape[0], -1))
     matmul = Call('nn.batch_matmul', diag, Call('transpose', conv_w, axes=[0, 2, 1]))
-    fused_conv_w = Call('reshape_like', matmul, w)
-    new_conv = Call('nn.conv2d', x, fused_conv_w, strides=conv.strides, padding=conv.padding,
+    fused_w = Call('reshape_like', matmul, w)
+    new_conv = Call('nn.conv2d', x, fused_w, strides=conv.strides, padding=conv.padding,
                     dilation=conv.dilation, groups=conv.groups)
     bias = beta - moving_mean * k
     y2 = Call('nn.bias_add', new_conv, bias)
@@ -93,7 +106,7 @@ def test_conv_bn():
     subst = Substitution(y1, y2)
 
     # Apply substitution
-    wl = subst.apply(wl)
+    wl = subst(wl)
     print(wl.mod)
 
 
