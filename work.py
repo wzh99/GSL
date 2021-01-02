@@ -18,7 +18,7 @@ class Workload:
         :param params: Mapping from parameter names to values. Internally, the values are stored
         in `np.ndarray`s. NDArray values will be converted to that type.
         """
-        self.mod = mod
+        self.mod = relay.transform.InferType()(mod)
         self.params = dict([(key, self._cvt_param(val)) for key, val in params.items()])
         self.name = name
 
@@ -40,7 +40,6 @@ class Workload:
         free_vars: List[relay.Var] = relay.analysis.free_vars(expr)
         main = relay.Function(free_vars, expr)
         mod = ir.IRModule(functions={'main': main})
-        mod = relay.transform.InferType()(mod)
 
         # Generate random parameters
         params: Dict[str, np.ndarray] = dict()
