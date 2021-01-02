@@ -1,5 +1,4 @@
 from inspect import signature, Parameter
-from types import FunctionType
 from typing import Set
 
 from tvm import relay, ir, transform
@@ -23,7 +22,7 @@ class Substitution:
         # Check source and target
         src_checker = _SrcPatChecker()
         src_checker.visit(src)
-        _TgtPatChecker(src_checker.wildcard_vars).visit(tgt)
+        _TgtPatChecker(set(src_checker.visited.keys()), src_checker.wildcard_vars).visit(tgt)
 
         # Create expression rewriter
         self.rewriter = _ExprRewriter(src, tgt)
@@ -61,64 +60,43 @@ class _SrcPatChecker(NodeVisitor):
     def visit_var(self, var: Var) -> Any:
         self.wildcard_vars.add(var)
 
-    def visit_call(self, call: Call) -> Any:
-        # Visit arguments
-        super().visit_call(call)
-
-        # Check call node
-        func = op.get_func(call.op)
-        _check_call(func, call)
-
-
-def _check_call(func: FunctionType, call: Call):
-    # Check number of inputs
-    num_input = op.num_inputs[func]
-    if num_input != len(call.args):
-        raise ValueError(
-            'Expect {} input tensor(s), got {}.'.format(num_input, len(call.args))
-        )
-
-    # Check if attributes really exists in op
-    attr_names = op.get_func_attr_names(func)
-    for name, val in call.attrs.items():
-        if not attr_names.__contains__(name):
-            raise AttributeError(
-                'Attribute \'{}\' not found in op \'{}\'.'.format(name, call.op)
+    def visit_const(self, const: Const) -> Any:
+        if isinstance(const.value, AttrExpr):
+            raise TypeError(
+                'Constant node in source graph cannot store an attribute expression.'
             )
 
 
 class _TgtPatChecker(NodeVisitor):
-    def __init__(self, wildcard_vars: Set[Union[Wildcard, Var]]):
+    def __init__(self, src_nodes: Set[Node], wildcard_vars: Set[Union[Wildcard, Var]]):
         super().__init__()
+        self.src_nodes = src_nodes
         self.wildcard_vars = wildcard_vars
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
         if not self.wildcard_vars.__contains__(wildcard):
             raise ValueError(
-                'Target graph contains wildcard node not defined in source graph.'
+                'Target pattern contains wildcard node not defined in source graph.'
             )
 
     def visit_var(self, var: Var) -> Any:
         if not self.wildcard_vars.__contains__(var):
             raise ValueError(
-                'Target graph contains variable node not defined in source graph.'
+                'Target pattern contains variable node not defined in source graph.'
             )
 
     def visit_const(self, const: Const) -> Any:
         if const.value is None:
             raise ValueError(
-                'Constant node in target graph must contain a value.'
+                'Constant node in target pattern must contain a value.'
             )
 
     def visit_call(self, call: Call) -> Any:
         # Visit arguments
         super().visit_call(call)
 
-        # Check call node
+        # Check if all non-default attributes are provided
         func = op.get_func(call.op)
-        _check_call(func, call)
-
-        # Check whether all non-default attributes are provided
         num_input = op.num_inputs[func]
         required = set()
         for name, param in list(signature(func).parameters.items())[num_input:]:
@@ -126,9 +104,23 @@ class _TgtPatChecker(NodeVisitor):
                 required.add(name)
         required.difference_update(call.attrs.keys())
         if len(required) != 0:
-            raise AttributeError('Attributes {} are not provided for op \'{}\'.'.format(
-                tuple(required), call.op
-            ))
+            raise AttributeError('Required attributes {} are not provided for op \'{}\'.'
+                                 .format(tuple(required), call.op))
+
+        # Check if all attribute expressions only contain reference to nodes in source graph
+        for a in call.attrs.values():
+            _TgtAttrChecker(self.src_nodes).visit(a)
+
+
+class _TgtAttrChecker(AttrVisitor):
+    def __init__(self, src_nodes: Set[Node]):
+        self.src_nodes = src_nodes
+
+    def visit_get_attr(self, get_attr: GetAttr):
+        if not self.src_nodes.__contains__(get_attr.node):
+            raise AttributeError(
+                'Attribute in target pattern refers to nodes not defined in source graph.'
+            )
 
 
 @relay.transform.function_pass(opt_level=0)
@@ -208,7 +200,7 @@ class _SrcGraphMatcher(NodeVisitor):
 
     def visit_const(self, const: Const) -> Any:
         expr = self.gsl_to_expr[const]
-        if (const.value is not None) and \
+        if isinstance(const.value, np.ndarray) and \
                 (not np.array_equal(const.value, np.array(expr.value))):
             raise _SrcNotMatchException()
 
@@ -227,7 +219,29 @@ class _AttrEvaluator(AttrVisitor):
         return const.value
 
     def visit_get_attr(self, get_attr: GetAttr):
-        return self.gsl_to_expr[get_attr.node].attrs[get_attr.name]
+        node = get_attr.node
+        name = get_attr.name
+        expr = self.gsl_to_expr[get_attr.node]
+        if isinstance(node, Call):
+            return expr.attrs[get_attr.name]
+        elif isinstance(node, Var):
+            if name == 'shape':
+                return expr.type_annotation.concrete_shape
+            elif name == 'dtype':
+                return expr.type_annotation.dtype
+            else:
+                raise RuntimeError('Impossible case.')
+        else:
+            raise RuntimeError('Impossible case.')
+
+    def visit_list(self, list_attr: ListAttr):
+        return [self.visit(f) for f in list_attr.fields]
+
+    def visit_tuple(self, tup_attr: TupleAttr):
+        return tuple([self.visit(f) for f in tup_attr.fields])
+
+    def visit_getitem(self, getitem: GetItemAttr):
+        return self.visit(getitem.seq)[getitem.index]
 
     def visit_binary(self, binary: BinaryExpr):
         raise NotImplementedError()
@@ -245,7 +259,13 @@ class _GraphBuilder(NodeVisitor):
         return self.gsl_to_expr[var]
 
     def visit_const(self, const: Const) -> Any:
-        return relay.const(const.value)
+        if isinstance(const.value, np.ndarray):
+            value = const.value
+        elif isinstance(const.value, AttrExpr):
+            value = _AttrEvaluator(self.gsl_to_expr).visit(const.value)
+        else:
+            raise RuntimeError('Impossible case.')
+        return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]

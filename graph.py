@@ -10,6 +10,9 @@ class Node:
     Base class for all graph pattern nodes. This class cannot be instantiated.
     """
 
+    def __getitem__(self, index: int):
+        return GetItem(self, index)
+
     def __neg__(self):
         return Call('negative', self)
 
@@ -51,33 +54,41 @@ class Var(Node):
     A variable node matches input tensor of the model. Target graph cannot contain variable nodes
     not defined in source graph.
     """
-    pass
+    # Ad-hoc attributes
+    attrs = ['shape', 'dtype']
+
+    def __getattr__(self, name: str):
+        return GetAttr(self, name)
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
-const_value_class = (int, float, list, np.ndarray)
 
 
 class Const(Node):
     """
     A constant nodes stores constants in graph.
     """
+    value_class = (int, float, list, np.ndarray)
 
-    def __init__(self, value: Union[ConstValueType, None]):
+    def __init__(self, value: Union[ConstValueType, AttrExpr, None]):
         """
         Constructor
         :param value: In source graph, if the value is provided, it only matches nodes with the
         same value. Otherwise, any constant node will match. If the node also appears in target
-        graph, the value will be copied to new graph. New constant nodes can also be created in
-        target graph.
+        graph, the value will be copied to new graph.
+        New constant nodes can be created in target graph. In target graph, the constant nodes can
+        also be specified by an attribute expression with respect to nodes in source graph. \
         """
         if value is None:
-            return
-        if isinstance(value, (int, float, list)):
-            value = np.array(value)
-        if not isinstance(value, np.ndarray):
-            raise TypeError('Not a constant')
-        self.value: np.ndarray = value
+            self.value = None
+        elif isinstance(value, (AttrExpr, np.ndarray)):
+            self.value = value
+        elif isinstance(value, (int, float, list)):
+            self.value = np.array(value)
+        else:
+            raise TypeError(
+                'Cannot create constant node from value of type {}.'.format(value.__class__)
+            )
 
 
 def to_node(val: Union[Node, ConstValueType]) -> Node:
@@ -88,7 +99,7 @@ def to_node(val: Union[Node, ConstValueType]) -> Node:
     """
     if isinstance(val, Node):
         return val
-    elif isinstance(val, const_value_class):
+    elif isinstance(val, Const.value_class):
         return Const(val)
     else:
         raise TypeError('Cannot convert to graph pattern node.')
@@ -99,8 +110,24 @@ class Call(Node):
         self.op = op_name
         self.args = args
 
+        # Check number of inputs
+        func = op.get_func(op_name)
+        num_input = op.num_inputs[func]
+        if num_input != len(args):
+            raise ValueError(
+                'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
+            )
+
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
+
+        # Check if attributes really exists in op
+        attr_names = op.get_func_attr_names(func)
+        for name, val in self.attrs.items():
+            if not attr_names.__contains__(name):
+                raise AttributeError(
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, op_name)
+                )
 
     def __getattr__(self, name: str):
         return GetAttr(self, name)
@@ -110,14 +137,9 @@ class Tuple(Node):
     def __init__(self, *raw_fields):
         self.fields = tuple([to_node(f) for f in raw_fields])
 
-    def __getitem__(self, index: int):
-        return GetItem(self, index)
-
 
 class GetItem(Node):
-    def __init__(self, tup: Tuple, index: int):
-        if index >= len(tup.fields):
-            raise ValueError('Index {} out of bound.'.format(index))
+    def __init__(self, tup: Node, index: int):
         self.tup = tup
         self.index = index
 

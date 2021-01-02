@@ -16,14 +16,17 @@ num_inputs = {
     exp: 1,
     sqrt: 1,
 
+    # Tensor generation
+    zeros: 0,
+    zeros_like: 1,
+
     # Tensor transformations
     concatenate: 1,
     split: 1,
     reshape: 1,
+    reshape_like: 2,
     transpose: 1,
     expand_dims: 1,
-
-    # Linear algebra
     matrix_set_diag: 2,
 
     # Neural network operators

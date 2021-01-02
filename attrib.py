@@ -33,8 +33,8 @@ class AttrExpr:
     def __floordiv__(self, other):
         return BinaryExpr(BinaryOp.DIV, self, to_attr(other))
 
-    def __rfloordiv__(self, other):
-        return BinaryExpr(BinaryOp.DIV, to_attr(other), self)
+    def __getitem__(self, index: int):
+        return GetItemAttr(self, index)
 
 
 class ConstAttr(AttrExpr):
@@ -52,13 +52,21 @@ class GetAttr(AttrExpr):
     """
 
     def __init__(self, node, name: str):
-        # Check if the call node has attribute of this name
-        func = op.get_func(node.op)
-        attr_names = op.get_func_attr_names(func)
-        if not attr_names.__contains__(name):
-            raise AttributeError(
-                'Attribute \'{}\' not found in op \'{}\''.format(name, node.op)
-            )
+        from graph import Call, Var
+
+        if isinstance(node, Call):
+            # Check if the call node has attribute of this name
+            func = op.get_func(node.op)
+            attr_names = op.get_func_attr_names(func)
+            if not attr_names.__contains__(name):
+                raise AttributeError(
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, node.op)
+                )
+        elif isinstance(node, Var):
+            if not Var.attrs.__contains__(name):
+                raise AttributeError(
+                    'Attribute \'{}\' not found in variable node.'.format(name)
+                )
 
         self.node = node
         self.name = name
@@ -72,21 +80,6 @@ class ListAttr(AttrExpr):
     def __init__(self, fields: List[Union[AttrExpr, AttrValueType]]):
         self.fields = [to_attr(e) for e in fields]
 
-    def __getitem__(self, index: int):
-        return ListGetItemAttr(self, index)
-
-
-class ListGetItemAttr(AttrExpr):
-    """
-    Get item from a list attribute.
-    """
-
-    def __init__(self, list_attr: ListAttr, index: int):
-        if index >= len(list_attr.fields):
-            raise ValueError('Index {} out of bound.'.format(index))
-        self.list = list_attr
-        self.index = index
-
 
 class TupleAttr(AttrExpr):
     """
@@ -96,19 +89,14 @@ class TupleAttr(AttrExpr):
     def __init__(self, *fields):
         self.fields = tuple([to_attr(e) for e in fields])
 
-    def __getitem__(self, index: int):
-        return TupleGetItemAttr(self, index)
 
-
-class TupleGetItemAttr(AttrExpr):
+class GetItemAttr(AttrExpr):
     """
-    Get item from a tuple attribute.
+    Get item from a list or tuple attribute with given index
     """
 
-    def __init__(self, tup_attr: TupleAttr, index: int):
-        if index >= len(tup_attr.fields):
-            raise ValueError('Index {} out of bound'.format(index))
-        self.tup = tup_attr
+    def __init__(self, seq: AttrExpr, index: int):
+        self.seq = seq
         self.index = index
 
 
@@ -125,7 +113,7 @@ def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list]) -> AttrExpr:
     elif isinstance(val, list):
         return ListAttr(val)
     elif isinstance(val, tuple):
-        return TupleAttr(val)
+        return TupleAttr(*val)
     else:
         raise ValueError(
             'Cannot convert value of type \'{}\' to attribute.'.format(val.__class__)
@@ -158,12 +146,10 @@ class AttrVisitor:
             return self.visit_get_attr(attr)
         elif isinstance(attr, ListAttr):
             return self.visit_list(attr)
-        elif isinstance(attr, ListGetItemAttr):
-            return self.visit_list_getitem(attr)
         elif isinstance(attr, TupleAttr):
             return self.visit_tuple(attr)
-        elif isinstance(attr, TupleGetItemAttr):
-            return self.visit_tuple_getitem(attr)
+        elif isinstance(attr, GetItemAttr):
+            return self.visit_getitem(attr)
         elif isinstance(attr, BinaryExpr):
             return self.visit_binary(attr)
         else:
@@ -176,16 +162,15 @@ class AttrVisitor:
         pass
 
     def visit_list(self, list_attr: ListAttr):
-        pass
-
-    def visit_list_getitem(self, getitem: ListGetItemAttr):
-        pass
+        for f in list_attr.fields:
+            self.visit(f)
 
     def visit_tuple(self, tup_attr: TupleAttr):
-        pass
+        for f in tup_attr.fields:
+            self.visit(f)
 
-    def visit_tuple_getitem(self, getitem: TupleGetItemAttr):
-        pass
+    def visit_getitem(self, getitem: GetItemAttr):
+        self.visit(getitem.seq)
 
     def visit_binary(self, binary: BinaryExpr):
         pass
