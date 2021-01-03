@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 
 import numpy as np
 from tvm import relay, transform, ir, tir
@@ -28,10 +28,7 @@ class _ParamFolder(relay.ExprMutator):
     def visit(self, expr: relay.Expr):
         if self.memo_map.__contains__(expr):
             return self.memo_map[expr]
-        try:
-            ret = super().visit(expr)
-        except _FoldException:
-            ret = expr
+        ret = super().visit(expr)
         self.memo_map[expr] = ret
         return ret
 
@@ -41,16 +38,32 @@ class _ParamFolder(relay.ExprMutator):
 
         # Fold parameters
         op_name = call.op.name
-        if _api_mapped.__contains__(op_name):  # mapped to numpy APIs
-            # Collect values and attributes from relay call node
-            args = self._collect_values(call.args)
-            attrs = self._cvt_attrs(call.attrs)
-            np_func = eval('np.{}'.format(op_name))
-            return self._add_param(np_func(*args, **attrs))
-        else:
+        try:
+            if _direct_mapped.__contains__(op_name):  # mapped to numpy APIs
+                args = self._get_values(call.args)
+                attrs = self._cvt_attrs(call.attrs)
+                np_func = eval('np.{}'.format(op_name))
+                return self._add_param(np_func(*args, **attrs))
+            elif _eval_funcs.__contains__(op_name):
+                args = self._get_values(call.args)
+                attrs = self._cvt_attrs(call.attrs)
+                return self._add_param(_eval_funcs[op_name](args, attrs))
+            elif op_name == 'matrix_set_diag':
+                # In this project, we assume the first input of `matrix_set_diag` is always zero.
+                # This way, the semantic is similar to `np.diag`.
+                data = self._get_values(call.args[1:2])[0]
+                return self._add_param(np.diag(data))
+            elif op_name == 'nn.batch_matmul':
+                args = self._get_values(call.args)
+                return self._add_param(
+                    np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1)))
+                )
+            else:
+                return call
+        except _FoldException:
             return call
 
-    def _collect_values(self, args: List[relay.Expr]) -> List[np.ndarray]:
+    def _get_values(self, args: List[relay.Expr]) -> List[np.ndarray]:
         values = []
         for a in args:
             if isinstance(a, relay.Constant):
@@ -62,7 +75,7 @@ class _ParamFolder(relay.ExprMutator):
         return values
 
     def _cvt_attrs(self, attrs: Optional[ir.Attrs]) -> Dict[str, Any]:
-        if attrs is None:
+        if attrs is None or len(attrs.keys()) == 0:
             return {}
         else:
             return dict([(name, self._cvt_value(attrs[name])) for name in attrs.keys()])
@@ -92,7 +105,7 @@ class _FoldException(Exception):
     pass
 
 
-_api_mapped = {
+_direct_mapped = {
     'negative',
     'add',
     'subtract',
@@ -104,4 +117,8 @@ _api_mapped = {
     'zeros',
     'reshape',
     'transpose',
+}
+
+_eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
+    'expand_dims': lambda args, attrs: np.expand_dims(args[0], attrs['axis']),
 }

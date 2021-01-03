@@ -23,7 +23,6 @@ num_inputs = {
     concatenate: 1,
     split: 1,
     reshape: 1,
-    reshape_like: 2,
     transpose: 1,
     expand_dims: 1,
     matrix_set_diag: 2,
@@ -45,5 +44,9 @@ def get_func(name: str) -> FunctionType:
 
 
 def get_attr_names(func: FunctionType) -> List[str]:
+    if not num_inputs.__contains__(func):
+        raise ValueError(
+            'Specification of function \'{}\' is not found.'.format(func.__name__)
+        )
     num_input = num_inputs[func]
     return list(signature(func).parameters.keys())[num_input:]

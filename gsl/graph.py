@@ -109,6 +109,9 @@ def to_node(val: Union[Node, ConstValueType]) -> Node:
 
 
 class Call(Node):
+    """
+    Represents an operator call.
+    """
     def __init__(self, op_name: str, *args, **raw_attr):
         self.op = op_name
         self.args = args
@@ -124,7 +127,7 @@ class Call(Node):
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
 
-        # Check if attributes really exists in op
+        # Check if specified attributes really exists in op
         attr_names = op.get_attr_names(func)
         for name, val in self.attrs.items():
             if not attr_names.__contains__(name):
@@ -133,12 +136,14 @@ class Call(Node):
                 )
 
     def __getattr__(self, name: str):
+        # Check if attribute name is valid
         func = op.get_func(self.op)
         attr_names = op.get_attr_names(func)
         if not attr_names.__contains__(name):
             raise AttributeError(
                 'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
             )
+
         return GetAttr(self, name)
 
 

@@ -96,7 +96,7 @@ def test_conv_bn():
     diag = Call('expand_dims', Call('matrix_set_diag', zeros, k), axis=0)
     conv_w = Call('reshape', w, newshape=(1, w.shape[0], -1))
     matmul = Call('nn.batch_matmul', diag, Call('transpose', conv_w, axes=[0, 2, 1]))
-    fused_w = Call('reshape_like', matmul, w)
+    fused_w = Call('reshape', matmul, newshape=w.shape)
     new_conv = Call('nn.conv2d', x, fused_w, strides=conv.strides, padding=conv.padding,
                     dilation=conv.dilation, groups=conv.groups)
     bias = beta - moving_mean * k
