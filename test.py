@@ -1,8 +1,8 @@
 from tvm import relay
 
-from graph import *
-from subst import Substitution
-from work import Workload
+from gsl.graph import *
+from gsl.subst import Substitution
+from gsl.work import Workload
 
 
 def test_transpose_transpose():

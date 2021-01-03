@@ -4,6 +4,8 @@ import numpy as np
 from graphviz import Digraph
 from tvm import ir, runtime, relay
 
+from . import dtype
+
 
 class Workload:
     """
@@ -25,8 +27,9 @@ class Workload:
     @staticmethod
     def _cvt_param(x: Union[runtime.NDArray, np.ndarray]) -> np.ndarray:
         if isinstance(x, runtime.NDArray):
-            x = x.asnumpy()
-        return x
+            return np.array(x.asnumpy(), dtype=dtype)
+        else:
+            return np.array(x, dtype=dtype)
 
     @staticmethod
     def from_expr(expr: relay.Expr):
@@ -45,8 +48,8 @@ class Workload:
         params: Dict[str, np.ndarray] = dict()
         for v in free_vars:
             shape: Tuple[int] = v.type_annotation.concrete_shape
-            params[v.name_hint] = np.random.randn(*shape)
-            
+            params[v.name_hint] = np.random.rand(*shape)
+
         return Workload(mod, params)
 
     def visualize(self, path: str = ''):

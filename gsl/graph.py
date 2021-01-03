@@ -1,9 +1,9 @@
 from typing import Dict, Any
 
 import numpy as np
-import op
 
-from attrib import *
+from . import op
+from .attrib import *
 
 
 class Node:
@@ -56,7 +56,7 @@ class Var(Node):
     not defined in source graph.
     """
     # Ad-hoc attributes
-    attrs = ['shape', 'dtype']
+    attrs = {'shape', 'dtype'}
 
     def __getattr__(self, name: str):
         if not Var.attrs.__contains__(name):
@@ -125,7 +125,7 @@ class Call(Node):
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
 
         # Check if attributes really exists in op
-        attr_names = op.get_func_attr_names(func)
+        attr_names = op.get_attr_names(func)
         for name, val in self.attrs.items():
             if not attr_names.__contains__(name):
                 raise AttributeError(
@@ -134,7 +134,7 @@ class Call(Node):
 
     def __getattr__(self, name: str):
         func = op.get_func(self.op)
-        attr_names = op.get_func_attr_names(func)
+        attr_names = op.get_attr_names(func)
         if not attr_names.__contains__(name):
             raise AttributeError(
                 'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)

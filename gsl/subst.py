@@ -4,8 +4,9 @@ from typing import Set
 from tvm import relay, ir, transform
 from tvm.relay import dataflow_pattern as dfp
 
-from graph import *
-from work import Workload
+from .fold import ParamFoldPass
+from .graph import *
+from .work import Workload
 
 
 class Substitution:
@@ -35,11 +36,16 @@ class Substitution:
         :return New workload after application of substitution rule.
         """
         # Apply substitution to graph
-        new_mod = _SubstFuncPass(self.rewriter)(wl.mod)
-        new_wl = Workload(new_mod, wl.params)
+        mod = _SubstFuncPass(self.rewriter)(wl.mod)
+        if fold_param:
+            fold_pass = ParamFoldPass(wl.params)
+            mod = fold_pass(mod)
+            new_wl = Workload(mod, fold_pass.params)
+        else:
+            new_wl = Workload(mod, wl.params)
 
         # Filter out unused parameters
-        param_names = set([p.name_hint for p in new_mod['main'].params])
+        param_names = set([p.name_hint for p in mod['main'].params])
         used_params = dict()
         for name, val in new_wl.params.items():
             if param_names.__contains__(name):

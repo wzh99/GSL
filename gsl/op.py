@@ -44,6 +44,6 @@ def get_func(name: str) -> FunctionType:
     return eval(name)
 
 
-def get_func_attr_names(func: FunctionType) -> List[str]:
+def get_attr_names(func: FunctionType) -> List[str]:
     num_input = num_inputs[func]
     return list(signature(func).parameters.keys())[num_input:]
