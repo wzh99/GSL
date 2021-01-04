@@ -1,14 +1,15 @@
+import unittest
+
 from tvm import relay
-import tvm
 
 from gsl.graph import *
 from gsl.subst import Substitution
 from gsl.work import Workload
 
-import unittest
-
 
 class GslTest(unittest.TestCase):
+    fontname = 'LM Mono 12 Regular'
+
     def test_trans_trans(self):
         print('Transpose-Transpose')
 
@@ -83,8 +84,7 @@ class GslTest(unittest.TestCase):
         moving_var = relay.var('moving_var', shape=(2,))
         y = relay.nn.conv2d(x, w, padding=(1, 1))
         y = relay.nn.batch_norm(y, gamma, beta, moving_mean, moving_var)[0]
-        wl = Workload.from_expr(y, {'x'})
-        # print(wl.mod)
+        wl = Workload.from_expr(y, {'x'}, name='conv_bn')
 
         # Input
         x = Wildcard()
@@ -98,6 +98,7 @@ class GslTest(unittest.TestCase):
         conv = Call('nn.conv2d', x, w)
         bn = Call('nn.batch_norm', conv, gamma, beta, moving_mean, moving_var)
         y1 = bn[0]
+        # y1.visualize('conv_bn_pat', fontname=self.fontname)
 
         # Target pattern
         k = gamma / Call('sqrt', moving_var + bn.epsilon)
@@ -111,13 +112,14 @@ class GslTest(unittest.TestCase):
                         dilation=conv.dilation, groups=conv.groups)
         bias = beta - moving_mean * k
         y2 = Call('nn.bias_add', new_conv, bias)
+        # y2.visualize('conv_bias_add_pat', fontname=self.fontname)
 
         # Build substitution
         subst = Substitution(y1, y2)
 
         # Apply substitution
-        wl = subst(wl)
-        # print(wl.mod)
+        wl = subst(wl, new_name='conv_bias_add')
+        # wl.visualize(fontname=self.fontname)
         self.assertTrue(True)
 
 

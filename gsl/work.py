@@ -1,8 +1,8 @@
-from typing import Dict, Union, List, Tuple, Optional, Set
+from typing import Dict, Union, List, Tuple, Optional, Set, Any
 
 import numpy as np
-from graphviz import Digraph
 import tvm
+from graphviz import Digraph
 from tvm import ir, runtime, relay, transform
 
 from . import _default_dtype
@@ -38,13 +38,15 @@ class Workload:
             return np.array(x, dtype=_default_dtype)
 
     @staticmethod
-    def from_expr(expr: relay.Expr, input_names: Set[str], dtype: str = _default_dtype):
+    def from_expr(expr: relay.Expr, input_names: Set[str], dtype: str = _default_dtype,
+                  name: str = ''):
         """
         Create a workload from a Relay expression. All free variables become parameters of the
         function. Model parameters will be randomly generated.
         :param expr: Body expression of function
         :param input_names: Set of names of input tensors
         :param dtype: Data type of input tensors.
+        :param name: Name of the model.
         :return: Workload object created from this expression.
         """
         # Create module
@@ -60,9 +62,9 @@ class Workload:
             shape: Tuple[int] = v.type_annotation.concrete_shape
             params[v.name_hint] = np.random.rand(*shape)
 
-        return Workload(mod, params, dtype=dtype)
+        return Workload(mod, params, dtype=dtype, name=name)
 
-    def build(self, target: str = 'llvm', **config):
+    def build(self, target: str = 'llvm', config: Dict[str, Any] = None):
         """
         Build workload to run on a certain target platform.
         :param target: The corresponding target.
@@ -81,13 +83,14 @@ class Workload:
         """
         return self.func(**inputs, **self.params).asnumpy()
 
-    def visualize(self, path: str = ''):
+    def visualize(self, path: str = 'out', **attrs):
         """
         Visualize computation graph of this workload.
         :param path: Path to save graph visualization.
+        :param attrs: Attributes for plotting nodes.
         """
         graph = Digraph(name=self.name)
-        _GraphVizVisitor(graph).visit_function(self.mod['main'])
+        _ExprVisualizer(graph, **attrs).visit_function(self.mod['main'])
         graph.view(directory=path)
 
 
@@ -126,48 +129,49 @@ class _TensorDTypeMutator(relay.TypeMutator):
         return relay.TensorType(tt.concrete_shape, dtype=self.tgt_ty)
 
 
-class _GraphVizVisitor(relay.ExprVisitor):
-    def __init__(self, graph: Digraph):
+class _ExprVisualizer(relay.ExprVisitor):
+    def __init__(self, graph: Digraph, **attrs):
         super().__init__()
         self.graph = graph
-        self.node_id: Dict[relay.Expr, str] = {}
+        self.attrs = attrs
         self.counter = 0
 
     def visit(self, expr):
-        if self.node_id.__contains__(expr):
-            return
-        super().visit(expr)
+        if self.memo_map.__contains__(expr):
+            return self.memo_map[expr]
+        return super().visit(expr)
 
     def visit_var(self, var: relay.Var):
-        expr_id = self._register_node(var)
-        self.graph.node(expr_id, label=var.name_hint)
+        expr_id = self._next_id()
+        self.graph.node(expr_id, label='%' + var.name_hint, **self.attrs)
+        return expr_id
 
     def visit_constant(self, const: relay.Constant):
-        expr_id = self._register_node(const)
-        self.graph.node(expr_id, label='const')
+        expr_id = self._next_id()
+        self.graph.node(expr_id, label='const', **self.attrs)
+        return expr_id
 
     def visit_call(self, call: relay.Call):
-        expr_id = self._register_node(call)
-        self.graph.node(expr_id, label=call.op.name)
+        expr_id = self._next_id()
+        self.graph.node(expr_id, label=call.op.name, **self.attrs)
         for arg in call.args:
-            self.visit(arg)
-            self.graph.edge(self.node_id[arg], expr_id)
+            self.graph.edge(self.visit(arg), expr_id)
+        return expr_id
 
     def visit_tuple(self, tup: relay.Tuple):
-        expr_id = self._register_node(tup)
-        self.graph.node(expr_id, label='(,)')
+        expr_id = self._next_id()
+        self.graph.node(expr_id, label='(,)', **self.attrs)
         for field in tup.fields:
-            self.visit(field)
-            self.graph.edge(self.node_id[field], expr_id)
+            self.graph.edge(self.visit(field), expr_id)
+        return expr_id
 
     def visit_tuple_getitem(self, getitem: relay.TupleGetItem):
-        expr_id = self._register_node(getitem)
-        self.graph.node(expr_id, label='.%d' % getitem.index)
-        self.visit(getitem.tuple_value)
-        self.graph.edge(self.node_id[getitem.tuple_value], expr_id)
+        expr_id = self._next_id()
+        self.graph.node(expr_id, label='.' + getitem.index, **self.attrs)
+        self.graph.edge(self.visit(getitem.tuple_value), expr_id)
+        return expr_id
 
-    def _register_node(self, expr: relay.Expr) -> str:
+    def _next_id(self) -> str:
         cur_id = str(self.counter)
-        self.node_id[expr] = cur_id
         self.counter += 1
         return cur_id

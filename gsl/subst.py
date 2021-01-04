@@ -1,5 +1,5 @@
 from inspect import signature, Parameter
-from typing import Set
+from typing import Set, Optional
 
 from tvm import relay, ir, transform
 from tvm.relay import dataflow_pattern as dfp
@@ -28,7 +28,8 @@ class Substitution:
         # Create expression rewriter
         self.rewriter = _ExprRewriter(src, tgt)
 
-    def __call__(self, wl: Workload, fold_param: bool = True) -> Workload:
+    def __call__(self, wl: Workload, fold_param: bool = True, new_name: Optional[str] = None) \
+            -> Workload:
         """
         Apply substitution to workload.
         :param wl: Workload whose graph is to be altered.
@@ -47,10 +48,14 @@ class Substitution:
         # Filter out unused parameters
         param_names = set([p.name_hint for p in mod['main'].params])
         used_params = dict()
-        for name, val in new_wl.params.items():
-            if param_names.__contains__(name):
-                used_params[name] = val
+        for new_name, val in new_wl.params.items():
+            if param_names.__contains__(new_name):
+                used_params[new_name] = val
         new_wl.params = used_params
+
+        # Rename if provided
+        if new_name is not None:
+            new_wl.name = new_name
 
         return new_wl
 
@@ -185,9 +190,9 @@ class _PatternCreator(NodeVisitor):
         return dfp.is_op(call.op)(*args)
 
     # noinspection PyTypeChecker
-    def visit_tuple(self, tp: Tuple) -> dfp.DFPattern:
-        super().visit_tuple(tp)
-        fields = [self.visited[node] for node in tp.fields]
+    def visit_tuple(self, tup: Tuple) -> dfp.DFPattern:
+        super().visit_tuple(tup)
+        fields = [self.visited[node] for node in tup.fields]
         return dfp.is_tuple(fields)
 
     def visit_getitem(self, getitem: GetItem) -> dfp.DFPattern:
@@ -280,8 +285,8 @@ class _GraphBuilder(NodeVisitor):
         func = op.get_func(call.op)
         return func(*args, **attrs)
 
-    def visit_tuple(self, tp: Tuple) -> Any:
-        return relay.Tuple([self.visit(f) for f in tp.fields])
+    def visit_tuple(self, tup: Tuple) -> Any:
+        return relay.Tuple([self.visit(f) for f in tup.fields])
 
     def visit_getitem(self, getitem: GetItem) -> Any:
         return relay.TupleGetItem(self.visit(getitem.tup), getitem.index)

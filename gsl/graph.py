@@ -1,6 +1,7 @@
 from typing import Dict, Any
 
 import numpy as np
+from graphviz import Digraph
 
 from . import op
 from .attrib import *
@@ -40,6 +41,17 @@ class Node:
 
     def __rtruediv__(self, other):
         return Call('divide', to_node(other), self)
+
+    def visualize(self, name: str, path: str = 'out', **attrs):
+        """
+        Visualize this graph pattern node.
+        :param name: Name of the file.
+        :param path: Directory to store the file.
+        :param attrs: Attributes of the nodes.
+        """
+        graph = Digraph(name=name)
+        _PatternVisualizer(graph, **attrs).visit(self)
+        graph.view(directory=path)
 
 
 class Wildcard(Node):
@@ -112,6 +124,7 @@ class Call(Node):
     """
     Represents an operator call.
     """
+
     def __init__(self, op_name: str, *args, **raw_attr):
         self.op = op_name
         self.args = args
@@ -195,9 +208,57 @@ class NodeVisitor:
         for arg in call.args:
             self.visit(arg)
 
-    def visit_tuple(self, tp: Tuple) -> Any:
-        for f in tp.fields:
+    def visit_tuple(self, tup: Tuple) -> Any:
+        for f in tup.fields:
             self.visit(f)
 
     def visit_getitem(self, getitem: GetItem) -> Any:
         self.visit(getitem.tup)
+
+
+class _PatternVisualizer(NodeVisitor):
+    def __init__(self, graph: Digraph, **attrs):
+        super().__init__()
+        self.graph = graph
+        self.attrs = attrs
+        self.counter = 0
+
+    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='*', **self.attrs)
+        return node_id
+
+    def visit_var(self, var: Var) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='Var', **self.attrs)
+        return node_id
+
+    def visit_const(self, const: Const) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='Const', **self.attrs)
+        return node_id
+
+    def visit_call(self, call: Call) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label=call.op, **self.attrs)
+        for a in call.args:
+            self.graph.edge(self.visit(a), node_id)
+        return node_id
+
+    def visit_tuple(self, tup: Tuple) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='(,)', **self.attrs)
+        for f in tup.fields:
+            self.graph.edge(self.visit(f), node_id)
+        return node_id
+
+    def visit_getitem(self, getitem: GetItem) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='.{}'.format(getitem.index), **self.attrs)
+        self.graph.edge(self.visit(getitem.tup), node_id)
+        return node_id
+
+    def _next_id(self) -> str:
+        cur_id = str(self.counter)
+        self.counter += 1
+        return cur_id
