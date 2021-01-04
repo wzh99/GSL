@@ -3,7 +3,7 @@ from typing import Dict, List, Any, Optional, Callable
 import numpy as np
 from tvm import relay, transform, ir, tir
 
-from . import dtype
+from . import _default_dtype
 
 
 @relay.transform.function_pass(opt_level=0)
@@ -67,24 +67,26 @@ class _ParamFolder(relay.ExprMutator):
         values = []
         for a in args:
             if isinstance(a, relay.Constant):
-                values.append(np.array(a.data.asnumpy(), dtype=dtype))
-            elif isinstance(a, relay.Var):
+                values.append(np.array(a.data.asnumpy(), dtype=_default_dtype))
+            elif isinstance(a, relay.Var) and self.params.__contains__(a.name_hint):
                 values.append(self.params[a.name_hint])
             else:
                 raise _FoldException()
         return values
 
-    def _cvt_attrs(self, attrs: Optional[ir.Attrs]) -> Dict[str, Any]:
+    @classmethod
+    def _cvt_attrs(cls, attrs: Optional[ir.Attrs]) -> Dict[str, Any]:
         if attrs is None or len(attrs.keys()) == 0:
             return {}
         else:
-            return dict([(name, self._cvt_value(attrs[name])) for name in attrs.keys()])
+            return dict([(name, cls._cvt_value(attrs[name])) for name in attrs.keys()])
 
-    def _cvt_value(self, val) -> Any:
+    @classmethod
+    def _cvt_value(cls, val) -> Any:
         if isinstance(val, tir.IntImm):
             return int(val)
         elif isinstance(val, ir.Array):
-            return [self._cvt_value(e) for e in val]
+            return [cls._cvt_value(e) for e in val]
         else:
             return val
 

@@ -1,1 +1,1 @@
-dtype = 'float32'
+_default_dtype = 'float32'
