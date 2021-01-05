@@ -14,18 +14,17 @@ class GslTest(unittest.TestCase):
         print('Transpose-Transpose')
 
         # Source graph
-        x = relay.var('x', shape=[4, 16, 32])
-        x = relay.transpose(x, axes=[0, 2, 1])
-        x = relay.transpose(x, axes=[0, 2, 1])
+        x = relay.var('x', shape=(4, 16, 32))
+        x = relay.transpose(x, axes=(0, 2, 1))
+        x = relay.transpose(x, axes=(0, 2, 1))
         wl = Workload.from_expr(x, {'x'})
-        # print(wl.mod)
+        print(wl.mod)
 
         # Input
         x = Wildcard()
 
         # Source graph: (A^T)^T
-        y1 = Call('transpose', x, axes=[0, 2, 1])
-        y1 = Call('transpose', y1, axes=[0, 2, 1])
+        y1 = Call('transpose', Call('transpose', x, axes=(0, 2, 1)), axes=(0, 2, 1))
 
         # Target graph: A
         y2 = x
@@ -35,20 +34,20 @@ class GslTest(unittest.TestCase):
 
         # Apply substitution
         wl = subst(wl)
-        # print(wl.mod)
+        print(wl.mod)
         self.assertTrue(True)
 
     def test_bias_add_add(self):
         print('BiasAdd-Add')
 
         # Source graph
-        x1 = relay.var('x1', shape=[4, 3, 32, 32])
-        x2 = relay.var('x2', shape=[4, 3, 32, 32])
-        b1 = relay.var('b1', shape=[3])
-        b2 = relay.var('b2', shape=[3])
+        x1 = relay.var('x1', shape=(4, 3, 32, 32))
+        x2 = relay.var('x2', shape=(4, 3, 32, 32))
+        b1 = relay.var('b1', shape=(3,))
+        b2 = relay.var('b2', shape=(3,))
         y = relay.nn.bias_add(x1, b1) + relay.nn.bias_add(x2, b2)
         wl = Workload.from_expr(y, {'x1', 'x2'})
-        # print(wl.mod)
+        print(wl.mod)
 
         # Input
         x1 = Wildcard()
@@ -69,7 +68,7 @@ class GslTest(unittest.TestCase):
 
         # Apply substitution
         wl = subst(wl)
-        # print(wl.mod)
+        print(wl.mod)
         self.assertTrue(True)
 
     def test_conv_bn(self):
@@ -85,6 +84,7 @@ class GslTest(unittest.TestCase):
         y = relay.nn.conv2d(x, w, padding=(1, 1))
         y = relay.nn.batch_norm(y, gamma, beta, moving_mean, moving_var)[0]
         wl = Workload.from_expr(y, {'x'}, name='conv_bn')
+        print(wl.mod)
 
         # Input
         x = Wildcard()
@@ -119,9 +119,14 @@ class GslTest(unittest.TestCase):
 
         # Apply substitution
         wl = subst(wl, new_name='conv_bias_add')
-        # wl.visualize(fontname=self.fontname)
+        print(wl.mod)
         self.assertTrue(True)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    suite = unittest.TestSuite(tests=[
+        GslTest('test_trans_trans'),
+        GslTest('test_bias_add_add'),
+        GslTest('test_conv_bn'),
+    ])
+    unittest.TextTestRunner().run(suite)

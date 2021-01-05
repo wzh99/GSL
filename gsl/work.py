@@ -154,20 +154,20 @@ class _ExprVisualizer(relay.ExprVisitor):
     def visit_call(self, call: relay.Call):
         expr_id = self._next_id()
         self.graph.node(expr_id, label=call.op.name, **self.attrs)
-        for arg in call.args:
-            self.graph.edge(self.visit(arg), expr_id)
+        for a in call.args:
+            self.graph.edge(self.visit(a), expr_id)
         return expr_id
 
     def visit_tuple(self, tup: relay.Tuple):
         expr_id = self._next_id()
         self.graph.node(expr_id, label='(,)', **self.attrs)
-        for field in tup.fields:
-            self.graph.edge(self.visit(field), expr_id)
+        for f in tup.fields:
+            self.graph.edge(self.visit(f), expr_id)
         return expr_id
 
     def visit_tuple_getitem(self, getitem: relay.TupleGetItem):
         expr_id = self._next_id()
-        self.graph.node(expr_id, label='.' + getitem.index, **self.attrs)
+        self.graph.node(expr_id, label='.{}'.format(getitem.index), **self.attrs)
         self.graph.edge(self.visit(getitem.tuple_value), expr_id)
         return expr_id
 

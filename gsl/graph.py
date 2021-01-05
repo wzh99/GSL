@@ -4,7 +4,7 @@ import numpy as np
 from graphviz import Digraph
 
 from . import op
-from .attrib import *
+from .attr import *
 
 
 class Node:

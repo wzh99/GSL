@@ -7,6 +7,7 @@ from tvm.relay import dataflow_pattern as dfp
 from .fold import ParamFoldPass
 from .graph import *
 from .work import Workload
+from . import util
 
 
 class Substitution:
@@ -36,14 +37,19 @@ class Substitution:
         :param fold_param: whether to pre-compute nodes whose operands are already available.
         :return New workload after application of substitution rule.
         """
+
+        # Keep original name if new name is not provided
+        if new_name is None:
+            new_name = wl.name
+
         # Apply substitution to graph
         mod = _SubstFuncPass(self.rewriter)(wl.mod)
         if fold_param:
             fold_pass = ParamFoldPass(wl.params)
             mod = fold_pass(mod)
-            new_wl = Workload(mod, fold_pass.params)
+            new_wl = Workload(mod, fold_pass.params, name=new_name)
         else:
-            new_wl = Workload(mod, wl.params)
+            new_wl = Workload(mod, wl.params, name=new_name)
 
         # Filter out unused parameters
         param_names = set([p.name_hint for p in mod['main'].params])
@@ -52,10 +58,6 @@ class Substitution:
             if param_names.__contains__(new_name):
                 used_params[new_name] = val
         new_wl.params = used_params
-
-        # Rename if provided
-        if new_name is not None:
-            new_wl.name = new_name
 
         return new_wl
 
@@ -130,7 +132,7 @@ class _TgtAttrChecker(AttrVisitor):
     def visit_get_attr(self, get_attr: GetAttr):
         if not self.src_nodes.__contains__(get_attr.node):
             raise AttributeError(
-                'Attribute in target pattern refers to nodes is not defined in source graph.'
+                'Attribute in target pattern refers to nodes not defined in source graph.'
             )
 
 
@@ -218,8 +220,18 @@ class _SrcGraphMatcher(NodeVisitor):
     def visit_call(self, call: Call) -> Any:
         expr = self.gsl_to_expr[call]
         for name, attr in call.attrs.items():
-            if expr.attrs[name] != _AttrEvaluator(self.gsl_to_expr).visit(attr):
+            if not self._attr_equal(expr.attrs[name], attr):
                 raise _SrcNotMatchException()
+
+    def _attr_equal(self, ir_attr, pat_attr: AttrExpr) -> bool:
+        ir_val = util.cvt_ir_value(ir_attr)
+        pat_val = _AttrEvaluator(self.gsl_to_expr).visit(pat_attr)
+        if isinstance(ir_val, (int, float, str)):
+            return ir_val == pat_val
+        elif isinstance(ir_val, list):
+            return ir_val == list(pat_val)
+        else:
+            return False
 
 
 class _AttrEvaluator(AttrVisitor):
@@ -232,7 +244,7 @@ class _AttrEvaluator(AttrVisitor):
     def visit_get_attr(self, get_attr: GetAttr):
         node = get_attr.node
         name = get_attr.name
-        expr = self.gsl_to_expr[get_attr.node]
+        expr = self.gsl_to_expr[node]
         if isinstance(node, Call):
             return expr.attrs[get_attr.name]
         elif isinstance(node, Var):

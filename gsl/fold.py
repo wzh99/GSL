@@ -3,7 +3,7 @@ from typing import Dict, List, Any, Optional, Callable
 import numpy as np
 from tvm import relay, transform, ir, tir
 
-from . import _default_dtype
+from . import _default_dtype, util
 
 
 @relay.transform.function_pass(opt_level=0)
@@ -79,12 +79,13 @@ class _ParamFolder(relay.ExprMutator):
         if attrs is None or len(attrs.keys()) == 0:
             return {}
         else:
-            return dict([(name, cls._cvt_value(attrs[name])) for name in attrs.keys()])
+            return dict([(name, cls._cvt_value(util.cvt_ir_value(attrs[name])))
+                         for name in attrs.keys()])
 
     @classmethod
     def _cvt_value(cls, val) -> Any:
-        if isinstance(val, tir.IntImm):
-            return int(val)
+        if isinstance(val, (tir.IntImm, tir.FloatImm, tir.StringImm)):
+            return val.value
         elif isinstance(val, ir.Array):
             return [cls._cvt_value(e) for e in val]
         else:

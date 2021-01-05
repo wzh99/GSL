@@ -6,7 +6,7 @@ from tvm.relay import *
 
 # Specify number of input tensors of Relay API.
 num_inputs = {
-    # Basic math functions
+    # Algebraic operators
     negative: 1,
     add: 2,
     subtract: 2,
@@ -33,7 +33,7 @@ num_inputs = {
     nn.bias_add: 2,
     nn.max_pool2d: 1,
     nn.relu: 1,
-    nn.global_avg_pool2d: 1,
+    nn.pad: 1,
     nn.dense: 2,
     nn.batch_matmul: 2,
 }
