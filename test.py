@@ -1,7 +1,5 @@
 import unittest
 
-from tvm import relay
-
 from gsl.graph import *
 from gsl.subst import Substitution
 from gsl.work import Workload
@@ -15,9 +13,9 @@ class GslTest(unittest.TestCase):
 
         # Source graph
         x = relay.var('x', shape=(4, 16, 32))
-        x = relay.transpose(x, axes=(0, 2, 1))
-        x = relay.transpose(x, axes=(0, 2, 1))
-        wl = Workload.from_expr(x, {'x'})
+        y = relay.transpose(x, axes=(0, 2, 1))
+        y = relay.transpose(y, axes=(0, 2, 1))
+        wl = Workload.from_expr(y, {'x'})
         print(wl.mod)
 
         # Input

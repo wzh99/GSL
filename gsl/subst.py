@@ -1,13 +1,13 @@
 from inspect import signature, Parameter
 from typing import Set, Optional
 
-from tvm import relay, ir, transform
+from tvm import ir, transform
 from tvm.relay import dataflow_pattern as dfp
 
+from . import util
 from .fold import ParamFoldPass
 from .graph import *
 from .work import Workload
-from . import util
 
 
 class Substitution:
@@ -79,6 +79,22 @@ class _SrcPatChecker(NodeVisitor):
                 'Constant node in source graph cannot store an attribute expression.'
             )
 
+    def visit_call(self, call: Call) -> Any:
+        super().visit_call(call)
+        for v in call.attrs.values():
+            _SrcAttrChecker(self.visited).visit(v)
+
+
+class _SrcAttrChecker(AttrVisitor):
+    def __init__(self, visited: Dict[Node, Any]):
+        self.visited = visited
+
+    def visit_get_attr(self, get_attr: GetAttr):
+        if not self.visited.__contains__(get_attr.node):
+            raise AttributeError(
+                'Attribute in source pattern refers to undefined node.'
+            )
+
 
 class _TgtPatChecker(NodeVisitor):
     def __init__(self, src_nodes: Set[Node], wildcard_vars: Set[Union[Wildcard, Var]]):
@@ -132,7 +148,7 @@ class _TgtAttrChecker(AttrVisitor):
     def visit_get_attr(self, get_attr: GetAttr):
         if not self.src_nodes.__contains__(get_attr.node):
             raise AttributeError(
-                'Attribute in target pattern refers to nodes not defined in source graph.'
+                'Attribute in target pattern refers to node not defined in source graph.'
             )
 
 
@@ -169,7 +185,7 @@ class _ExprRewriter(dfp.DFPatternCallback):
         # Further check source graph with additional constraints
         try:
             _SrcGraphMatcher(gsl_to_expr).visit(self.src)
-        except _SrcNotMatchException:
+        except _SrcMismatchException:
             return pre  # failed to match, don't modify graph
 
         # Build target graph
@@ -202,7 +218,7 @@ class _PatternCreator(NodeVisitor):
         return dfp.is_tuple_get_item(self.visited[getitem.tup], index=getitem.index)
 
 
-class _SrcNotMatchException(Exception):
+class _SrcMismatchException(Exception):
     pass
 
 
@@ -214,14 +230,15 @@ class _SrcGraphMatcher(NodeVisitor):
     def visit_const(self, const: Const) -> Any:
         expr = self.gsl_to_expr[const]
         if isinstance(const.value, np.ndarray) and \
-                (not np.array_equal(const.value, np.array(expr.value))):
-            raise _SrcNotMatchException()
+                (not np.array_equal(const.value, expr.data.asnumpy())):
+            raise _SrcMismatchException()
 
     def visit_call(self, call: Call) -> Any:
+        super().visit_call(call)
         expr = self.gsl_to_expr[call]
         for name, attr in call.attrs.items():
             if not self._attr_equal(expr.attrs[name], attr):
-                raise _SrcNotMatchException()
+                raise _SrcMismatchException()
 
     def _attr_equal(self, ir_attr, pat_attr: AttrExpr) -> bool:
         ir_val = util.cvt_ir_value(ir_attr)
@@ -242,9 +259,12 @@ class _AttrEvaluator(AttrVisitor):
         return const.value
 
     def visit_get_attr(self, get_attr: GetAttr):
+        # Get actual expression from map
         node = get_attr.node
         name = get_attr.name
         expr = self.gsl_to_expr[node]
+
+        # Access attribute according to type of node
         if isinstance(node, Call):
             return expr.attrs[get_attr.name]
         elif isinstance(node, Var):
