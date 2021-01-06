@@ -14,7 +14,11 @@ class Node:
     """
 
     def __init__(self):
-        self.out: List[Node] = []
+        self.succ: List[Node] = []
+
+    @property
+    def pred(self):
+        return []
 
     def __getitem__(self, index: int):
         return GetItem(self, index)
@@ -133,7 +137,7 @@ class Call(Node):
     def __init__(self, op_name: str, *args: Node, **raw_attr):
         super().__init__()
         self.op = op_name
-        self.args = args
+        self.args = list(args)
 
         # Check number of inputs
         func = op.get_func(op_name)
@@ -145,7 +149,7 @@ class Call(Node):
 
         # Set self as output of arguments
         for a in args:
-            a.out.append(self)
+            a.succ.append(self)
 
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
@@ -157,6 +161,10 @@ class Call(Node):
                 raise AttributeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, op_name)
                 )
+
+    @property
+    def pred(self):
+        return self.args
 
     def __getattr__(self, name: str):
         # Check if attribute name is valid
@@ -173,9 +181,13 @@ class Call(Node):
 class Tuple(Node):
     def __init__(self, *raw_fields: Node):
         super().__init__()
-        self.fields = tuple([to_node(f) for f in raw_fields])
+        self.fields = [to_node(f) for f in raw_fields]
         for f in raw_fields:
-            f.out.append(self)
+            f.succ.append(self)
+
+    @property
+    def pred(self):
+        return self.fields
 
 
 class GetItem(Node):
@@ -183,7 +195,11 @@ class GetItem(Node):
         super().__init__()
         self.tup = tup
         self.index = index
-        tup.out.append(self)
+        tup.succ.append(self)
+
+    @property
+    def pred(self):
+        return [self.tup]
 
 
 class NodeVisitor:

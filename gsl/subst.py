@@ -19,7 +19,8 @@ class Substitution:
         """
         Constructor.
         :param src_pats: A single source pattern, or a list of source patterns.
-        :param tgt_pats: A single target pattern, or a list of target patterns.
+        :param tgt_pats: A single target pattern, or a list of target patterns. Order of patterns
+        in target pattern list must strictly follow the one in source pattern list.
         """
         # Convert source and target patterns to lists if necessary
         if isinstance(src_pats, Node):
@@ -42,7 +43,7 @@ class Substitution:
             _TgtPatChecker(src_visited, src_limit).visit(tgt)
 
         # Create expression rewriter
-        self.rewriter = ExprRewriter(src_pats, tgt_pats)
+        self.rewriter = _ExprRewriter(src_pats, tgt_pats)
 
     def __call__(self, wl: Workload, fold_param: bool = True, new_name: Optional[str] = None) \
             -> Workload:
@@ -172,7 +173,7 @@ class _TgtAttrChecker(AttrVisitor):
 @relay.transform.function_pass(opt_level=0)
 class _SubstFuncPass:
     def __init__(self, rewriter):
-        self.rewriter: ExprRewriter = rewriter
+        self.rewriter: _ExprRewriter = rewriter
 
     def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
                            _ctx: transform.PassContext) -> relay.Function:
@@ -182,10 +183,8 @@ class _SubstFuncPass:
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
-class ExprRewriter:
+class _ExprRewriter:
     def __init__(self, src_pats: List[Node], tgt_pats: List[Node]):
-        if len(src_pats) != len(tgt_pats):
-            raise ValueError('Number of source and target patterns does not match.')
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
         self.history = set()
@@ -197,9 +196,9 @@ class ExprRewriter:
         # Greedily match all subgraphs
         while True:
             # Find all outgoing edges of call, tuple and getitem in expression
-            out_visitor = _OutEdgeVisitor()
-            out_visitor.visit(expr)
-            out_edges = out_visitor.out
+            succ_visitor = _SuccVisitor()
+            succ_visitor.visit(expr)
+            out_edges = succ_visitor.succ_map
 
             # Find matched expressions with patterns
             pat_to_expr: Dict[Node, relay.Expr] = dict()
@@ -215,7 +214,7 @@ class ExprRewriter:
             self.history.update(src_matched)
 
             # Check whether this subgraph has outgoing edges not described by source patterns
-            if not self._check_out(self.src_pats, pat_to_expr, out_edges):
+            if not self._check_succ(self.src_pats, pat_to_expr, out_edges):
                 continue
 
             # Generate target expressions and map source to them
@@ -275,8 +274,8 @@ class ExprRewriter:
     ignore_out_class = (Wildcard, Var, Const)
 
     @classmethod
-    def _check_out(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
-                   out_edges: Dict[relay.Expr, List[relay.Expr]]) -> bool:
+    def _check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
+                    expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
         # Create set of matched expressions
         matched_expr = set(pat_to_expr.values())
 
@@ -284,26 +283,20 @@ class ExprRewriter:
         queue = deque(src_pats)
         visited: Set[Node] = set(src_pats)
 
-        def update(node: Node):
-            if not visited.__contains__(node):
-                queue.append(node)
-                visited.add(node)
+        def update(n: Node):
+            if not visited.__contains__(n):
+                queue.append(n)
+                visited.add(n)
 
         # Traverse pattern graph
         while len(queue) > 0:
-            # Pop a node and add its children to queue
+            # Pop a node and add its predecessors to queue
             node = queue.popleft()
-            if isinstance(node, Call):
-                for a in node.args:
-                    update(a)
-            elif isinstance(node, Tuple):
-                for f in node.fields:
-                    update(f)
-            elif isinstance(node, GetItem):
-                update(node.tup)
+            for p in node.pred:
+                update(p)
 
             # Skip if the node is output
-            if len(node.out) == 0:
+            if len(node.succ) == 0:
                 continue
 
             # Skip if the node is a variable, a constant or wildcard
@@ -312,17 +305,17 @@ class ExprRewriter:
                 continue
 
             # Check if matched expression has outgoing edges not described by pattern
-            for o in out_edges[pat_to_expr[node]]:
+            for o in expr_succ[pat_to_expr[node]]:
                 if not matched_expr.__contains__(o):
                     return False
 
         return True
 
 
-class _OutEdgeVisitor(relay.ExprVisitor):
+class _SuccVisitor(relay.ExprVisitor):
     def __init__(self):
         super().__init__()
-        self.out: Dict[relay.Expr, List[relay.Expr]] = dict()
+        self.succ_map: Dict[relay.Expr, List[relay.Expr]] = dict()
 
     def visit_call(self, call: relay.Call):
         super().visit_call(call)
@@ -339,12 +332,12 @@ class _OutEdgeVisitor(relay.ExprVisitor):
         self._add_edge(t.tuple_value, t)
 
     def _add_edge(self, pred: relay.Expr, succ: relay.Expr):
-        if isinstance(pred, ExprRewriter.ignore_out_class):
+        if isinstance(pred, _ExprRewriter.ignore_out_class):
             return
-        if self.out.__contains__(pred):
-            self.out[pred].append(succ)
+        if self.succ_map.__contains__(pred):
+            self.succ_map[pred].append(succ)
         else:
-            self.out[pred] = [succ]
+            self.succ_map[pred] = [succ]
 
 
 class _RelayBuilder(NodeVisitor):
