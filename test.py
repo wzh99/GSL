@@ -1,7 +1,7 @@
 import unittest
 
 from gsl.graph import *
-from gsl.subst import Substitution
+from gsl.subst import Substitution, ExprRewriter
 from gsl.work import Workload
 
 
@@ -69,6 +69,39 @@ class GslTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_parallel_conv(self):
+        print('Parallel Conv')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        w1 = relay.var('w1', shape=(2, 2, 3, 3))
+        w2 = relay.var('w2', shape=(2, 2, 3, 3))
+        w3 = relay.var('w3', shape=(2, 2, 3, 3))
+        conv1 = relay.nn.conv2d(x, w1, padding=(1, 1))
+        conv2 = relay.nn.conv2d(x, w2, padding=(1, 1))
+        conv3 = relay.nn.conv2d(x, w3, padding=(1, 1))
+        y = relay.concatenate([conv1, conv2, conv3], 1)
+
+        # Input
+        x = Wildcard()
+        w1 = Var()
+        w2 = Var()
+
+        # Source pattern
+        conv1 = Call('nn.conv2d', x, w1)
+        conv2 = Call('nn.conv2d', x, w2, strides=conv1.strides, padding=conv1.padding,
+                     dilation=conv1.dilation, groups=conv1.groups)
+
+        # Target pattern
+        w = Call('concatenate', Tuple(w1, w2), axis=0)
+        conv = Call('nn.conv2d', x, w, padding=conv1.padding)
+        split = Call('split', conv, indices_or_sections=2, axis=1)
+
+        rewriter = ExprRewriter([conv1, conv2], [split[0], split[1]])
+        print(rewriter.rewrite(y))
+
+        self.assertTrue(True)
+
     def test_conv_bn(self):
         print('Conv-BatchNorm')
 
@@ -82,7 +115,7 @@ class GslTest(unittest.TestCase):
         y = relay.nn.conv2d(x, w, padding=(1, 1))
         y = relay.nn.batch_norm(y, gamma, beta, moving_mean, moving_var)[0]
         wl = Workload.from_expr(y, {'x'}, name='conv_bn')
-        print(wl.mod)
+        # print(wl.mod)
 
         # Input
         x = Wildcard()
@@ -117,14 +150,15 @@ class GslTest(unittest.TestCase):
 
         # Apply substitution
         wl = subst(wl, new_name='conv_bias_add')
-        print(wl.mod)
+        # print(wl.mod)
         self.assertTrue(True)
 
 
 if __name__ == '__main__':
     suite = unittest.TestSuite(tests=[
-        GslTest('test_trans_trans'),
-        GslTest('test_bias_add_add'),
+        # GslTest('test_trans_trans'),
+        # GslTest('test_bias_add_add'),
+        GslTest('test_parallel_conv'),
         GslTest('test_conv_bn'),
     ])
     unittest.TextTestRunner().run(suite)

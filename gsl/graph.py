@@ -2,6 +2,7 @@ from typing import Dict, Any
 
 import numpy as np
 from graphviz import Digraph
+from tvm import relay
 
 from . import op
 from .attr import *
@@ -262,3 +263,42 @@ class _PatternVisualizer(NodeVisitor):
         cur_id = str(self.counter)
         self.counter += 1
         return cur_id
+
+
+class AttrEvaluator(AttrVisitor):
+    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+        self.pat_to_expr = pat_to_expr
+
+    def visit_const(self, const: ConstAttr):
+        return const.value
+
+    def visit_get_attr(self, get_attr: GetAttr):
+        # Get actual expression from map
+        node = get_attr.node
+        name = get_attr.name
+        expr = self.pat_to_expr[node]
+
+        # Access attribute according to type of node
+        if isinstance(node, Call):
+            return expr.attrs[get_attr.name]
+        elif isinstance(node, Var):
+            if name == 'shape':
+                return expr.type_annotation.concrete_shape
+            elif name == 'dtype':
+                return expr.type_annotation.dtype
+            else:
+                raise RuntimeError('Impossible case.')
+        else:
+            raise RuntimeError('Impossible case.')
+
+    def visit_list(self, list_attr: ListAttr):
+        return [self.visit(f) for f in list_attr.fields]
+
+    def visit_tuple(self, tup_attr: TupleAttr):
+        return tuple([self.visit(f) for f in tup_attr.fields])
+
+    def visit_getitem(self, getitem: GetItemAttr):
+        return self.visit(getitem.seq)[getitem.index]
+
+    def visit_binary(self, binary: BinaryExpr):
+        raise NotImplementedError()

@@ -1,5 +1,5 @@
 from inspect import signature, Parameter
-from typing import Set, Optional
+from typing import Optional, Set
 
 from tvm import ir, transform
 from tvm.relay import dataflow_pattern as dfp
@@ -242,52 +242,13 @@ class _SrcGraphMatcher(NodeVisitor):
 
     def _attr_equal(self, ir_attr, pat_attr: AttrExpr) -> bool:
         ir_val = util.cvt_ir_value(ir_attr)
-        pat_val = _AttrEvaluator(self.gsl_to_expr).visit(pat_attr)
+        pat_val = AttrEvaluator(self.gsl_to_expr).visit(pat_attr)
         if isinstance(ir_val, (int, float, str)):
             return ir_val == pat_val
         elif isinstance(ir_val, list):
             return ir_val == list(pat_val)
         else:
             return False
-
-
-class _AttrEvaluator(AttrVisitor):
-    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
-        self.gsl_to_expr = gsl_to_expr
-
-    def visit_const(self, const: ConstAttr):
-        return const.value
-
-    def visit_get_attr(self, get_attr: GetAttr):
-        # Get actual expression from map
-        node = get_attr.node
-        name = get_attr.name
-        expr = self.gsl_to_expr[node]
-
-        # Access attribute according to type of node
-        if isinstance(node, Call):
-            return expr.attrs[get_attr.name]
-        elif isinstance(node, Var):
-            if name == 'shape':
-                return expr.type_annotation.concrete_shape
-            elif name == 'dtype':
-                return expr.type_annotation.dtype
-            else:
-                raise RuntimeError('Impossible case.')
-        else:
-            raise RuntimeError('Impossible case.')
-
-    def visit_list(self, list_attr: ListAttr):
-        return [self.visit(f) for f in list_attr.fields]
-
-    def visit_tuple(self, tup_attr: TupleAttr):
-        return tuple([self.visit(f) for f in tup_attr.fields])
-
-    def visit_getitem(self, getitem: GetItemAttr):
-        return self.visit(getitem.seq)[getitem.index]
-
-    def visit_binary(self, binary: BinaryExpr):
-        raise NotImplementedError()
 
 
 class _GraphBuilder(NodeVisitor):
@@ -305,14 +266,14 @@ class _GraphBuilder(NodeVisitor):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, AttrExpr):
-            value = _AttrEvaluator(self.gsl_to_expr).visit(const.value)
+            value = AttrEvaluator(self.gsl_to_expr).visit(const.value)
         else:
             raise RuntimeError('Impossible case.')
         return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]
-        attrs = dict([(name, _AttrEvaluator(self.gsl_to_expr).visit(attr))
+        attrs = dict([(name, AttrEvaluator(self.gsl_to_expr).visit(attr))
                       for name, attr in call.attrs.items()])
         func = op.get_func(call.op)
         return func(*args, **attrs)
@@ -321,4 +282,214 @@ class _GraphBuilder(NodeVisitor):
         return relay.Tuple([self.visit(f) for f in tup.fields])
 
     def visit_getitem(self, getitem: GetItem) -> Any:
-        return relay.TupleGetItem(self.visit(getitem.tup), getitem.index)
+        return self.visit(getitem.tup)[getitem.index]
+
+
+class ExprRewriter:
+    def __init__(self, src_pats: List[Node], tgt_pats: List[Node]):
+        if len(src_pats) != len(tgt_pats):
+            raise ValueError('Number of source and target patterns does not match.')
+        self.src_pats = src_pats
+        self.tgt_pats = tgt_pats
+
+    def rewrite(self, expr: relay.Expr) -> relay.Expr:
+        while True:
+            # Find matched expressions with patterns
+            pat_to_expr: Dict[Node, relay.Expr] = dict()
+            src_matched = []
+            for src_pat in self.src_pats:
+                src_expr = self._find_match(src_pat, expr, pat_to_expr, src_matched)
+                if src_expr is None:
+                    return expr  # even one subgraph is not found, exit immediately
+                else:
+                    src_matched.append(src_expr)
+
+            # Generate target expressions and map source to them
+            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt) for tgt in self.tgt_pats]
+            expr_map = dict(zip(src_matched, tgt_expr))
+
+            # Rewrite expression
+            expr = _RewriteMutator(expr_map).visit(expr)
+
+    def _find_match(self, pat: Node, expr: relay.Expr, pat_to_expr: Dict[Node, relay.Expr],
+                    src_matched: List[relay.Expr]) -> Optional[relay.Expr]:
+        class StackElem:
+            def __init__(self, e: relay.Expr, count: int):
+                self.expr = e
+                self.count = count
+
+        stack: List[StackElem] = [StackElem(expr, 0)]
+        visited: Set[relay.Expr] = {expr}
+
+        def update(e: relay.Expr):
+            if not visited.__contains__(e):
+                stack.append(StackElem(e, 0))
+                visited.add(e)
+
+        while len(stack) > 0:
+            # Pop an element from stack
+            elem = stack.pop()
+
+            if elem.count == 0:
+                # Add children to stack if this expression is visited for the first time
+                stack.append(StackElem(elem.expr, 1))
+                if isinstance(elem.expr, relay.Call):
+                    for a in reversed(elem.expr.args):
+                        update(a)
+                elif isinstance(elem.expr, relay.Tuple):
+                    for f in reversed(elem.expr.fields):
+                        update(f)
+                elif isinstance(elem.expr, relay.TupleGetItem):
+                    update(elem.expr.tuple_value)
+            else:
+                # Match pattern with this expression if it has been visited once
+                if src_matched.__contains__(elem.expr):
+                    continue  # matched expression cannot be matched again
+                matcher = _ExprMatcher(pat_to_expr.copy())
+                res = matcher.match(pat, elem.expr)
+                if res:
+                    pat_to_expr.update(matcher.pat_to_expr)  # update map if matches
+                    return elem.expr
+
+        return None
+
+
+class _RelayBuilder(NodeVisitor):
+    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+        super().__init__()
+        self.visited = pat_to_expr
+
+    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+        return self.visited[wildcard]
+
+    def visit_var(self, var: Var) -> Any:
+        return self.visited[var]
+
+    def visit_const(self, const: Const) -> Any:
+        if isinstance(const.value, np.ndarray):
+            value = const.value
+        elif isinstance(const.value, AttrExpr):
+            value = AttrEvaluator(self.visited).visit(const.value)
+        else:
+            raise RuntimeError('Impossible case.')
+        return relay.const(value)
+
+    def visit_call(self, call: Call) -> Any:
+        args = [self.visit(a) for a in call.args]
+        attrs = dict([(name, AttrEvaluator(self.visited).visit(attr))
+                      for name, attr in call.attrs.items()])
+        func = op.get_func(call.op)
+        return func(*args, **attrs)
+
+    def visit_tuple(self, tup: Tuple) -> Any:
+        return relay.Tuple([self.visit(f) for f in tup.fields])
+
+    def visit_getitem(self, getitem: GetItem) -> Any:
+        return self.visit(getitem.tup)[getitem.index]
+
+
+class _RewriteMutator(relay.ExprMutator):
+    def __init__(self, expr_map: Dict[relay.Expr, relay.Expr]):
+        super().__init__()
+        self.expr_map = expr_map
+
+    def visit(self, expr: relay.Expr):
+        if self.expr_map.__contains__(expr):
+            return self.expr_map[expr]
+        return super().visit(expr)
+
+
+class _ExprMatcher:
+    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+        self.pat_to_expr = pat_to_expr
+
+    def match(self, pat: Node, expr: relay.Expr) -> bool:
+        if self.pat_to_expr.__contains__(pat) and self.pat_to_expr[pat] != expr:
+            return False
+        if isinstance(pat, Wildcard):
+            res = True
+        elif isinstance(pat, Var):
+            res = self.match_var(pat, expr)
+        elif isinstance(pat, Const):
+            res = self.match_const(pat, expr)
+        elif isinstance(pat, Call):
+            res = self.match_call(pat, expr)
+        elif isinstance(pat, Tuple):
+            res = self.match_tuple(pat, expr)
+        elif isinstance(pat, GetItem):
+            res = self.match_getitem(pat, expr)
+        else:
+            res = False
+        if res:
+            self.pat_to_expr[pat] = expr
+        return res
+
+    @classmethod
+    def match_var(cls, _var: Var, expr: relay.Expr) -> bool:
+        return isinstance(expr, relay.Var)
+
+    @classmethod
+    def match_const(cls, const: Const, expr: relay.Expr) -> bool:
+        # Match constant node
+        if not isinstance(expr, relay.Constant):
+            return False
+
+        # Match value if provided
+        if isinstance(const.value, np.ndarray) and \
+                (not np.array_equal(const.value, expr.data.asnumpy())):
+            return False
+
+        return True
+
+    def match_call(self, call: Call, expr: relay.Expr) -> bool:
+        # Match call node
+        if not isinstance(expr, relay.Call):
+            return False
+
+        # Match op
+        # If op matches, the number of arguments also matches
+        if call.op != expr.op.name:
+            return False
+
+        # Match attributes
+        for name, attr in call.attrs.items():
+            if not self._attr_equal(attr, expr.attrs[name]):
+                return False
+
+        # Match arguments
+        for pat_arg, expr_arg in zip(call.args, expr.args):
+            if not self.match(pat_arg, expr_arg):
+                return False
+
+        return True
+
+    def _attr_equal(self, pat_attr: AttrExpr, expr_attr) -> bool:
+        ir_val = util.cvt_ir_value(expr_attr)
+        pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr)
+        if isinstance(ir_val, (int, float, str)):
+            return ir_val == pat_val
+        elif isinstance(ir_val, list):
+            return ir_val == list(pat_val)
+        else:
+            return False
+
+    def match_tuple(self, tup: Tuple, expr: relay.Expr) -> bool:
+        # Match tuple node
+        if not isinstance(expr, relay.Tuple):
+            return False
+
+        # Check number of fields
+        if len(tup.fields) != len(expr.fields):
+            return False
+
+        # Match fields
+        for pat_f, expr_f in zip(tup.fields, expr.fields):
+            if not self.match(pat_f, expr_f):
+                return False
+
+        return True
+
+    def match_getitem(self, getitem: GetItem, expr: relay.Expr) -> bool:
+        if not isinstance(expr, relay.TupleGetItem):
+            return False
+        return getitem.index == expr.index and self.match(getitem.tup, expr.tuple_value)
