@@ -13,6 +13,9 @@ class Node:
     Base class for all graph pattern nodes. This class cannot be instantiated.
     """
 
+    def __init__(self):
+        self.out: List[Node] = []
+
     def __getitem__(self, index: int):
         return GetItem(self, index)
 
@@ -95,6 +98,7 @@ class Const(Node):
         New constant nodes can be created in target graph. In target graph, the constant nodes can
         also be specified by an attribute expression with respect to nodes in source graph. \
         """
+        super().__init__()
         if value is None:
             self.value = None
         elif isinstance(value, (AttrExpr, np.ndarray)):
@@ -126,7 +130,8 @@ class Call(Node):
     Represents an operator call.
     """
 
-    def __init__(self, op_name: str, *args, **raw_attr):
+    def __init__(self, op_name: str, *args: Node, **raw_attr):
+        super().__init__()
         self.op = op_name
         self.args = args
 
@@ -137,6 +142,10 @@ class Call(Node):
             raise ValueError(
                 'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
             )
+
+        # Set self as output of arguments
+        for a in args:
+            a.out.append(self)
 
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
@@ -162,14 +171,19 @@ class Call(Node):
 
 
 class Tuple(Node):
-    def __init__(self, *raw_fields):
+    def __init__(self, *raw_fields: Node):
+        super().__init__()
         self.fields = tuple([to_node(f) for f in raw_fields])
+        for f in raw_fields:
+            f.out.append(self)
 
 
 class GetItem(Node):
     def __init__(self, tup: Node, index: int):
+        super().__init__()
         self.tup = tup
         self.index = index
+        tup.out.append(self)
 
 
 class NodeVisitor:

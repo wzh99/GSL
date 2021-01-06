@@ -1,8 +1,8 @@
+from collections import deque
 from inspect import signature, Parameter
 from typing import Optional, Set
 
 from tvm import ir, transform
-from tvm.relay import dataflow_pattern as dfp
 
 from . import util
 from .fold import ParamFoldPass
@@ -15,19 +15,34 @@ class Substitution:
     Represents a graph substitution rule.
     """
 
-    def __init__(self, src: Node, tgt: Node):
+    def __init__(self, src_pats: Union[Node, List[Node]], tgt_pats: Union[Node, List[Node]]):
         """
         Constructor.
-        :param src: Source graph pattern.
-        :param tgt: Target graph pattern.
+        :param src_pats: A single source pattern, or a list of source patterns.
+        :param tgt_pats: A single target pattern, or a list of target patterns.
         """
+        # Convert source and target patterns to lists if necessary
+        if isinstance(src_pats, Node):
+            src_pats = [src_pats]
+        if isinstance(tgt_pats, Node):
+            tgt_pats = [tgt_pats]
+
+        # Check if number of source and target pattern matches
+        if len(src_pats) != len(tgt_pats):
+            raise ValueError(
+                'Number of source and target patterns do not match.'
+            )
+
         # Check source and target
-        src_checker = _SrcPatChecker()
-        src_checker.visit(src)
-        _TgtPatChecker(set(src_checker.visited.keys()), src_checker.wildcard_vars).visit(tgt)
+        src_visited: Dict[Node, Any] = dict()
+        src_limit: Set[Union[Wildcard, Var]] = set()
+        for src in src_pats:
+            _SrcPatChecker(src_visited, src_limit).visit(src)
+        for tgt in tgt_pats:
+            _TgtPatChecker(src_visited, src_limit).visit(tgt)
 
         # Create expression rewriter
-        self.rewriter = _ExprRewriter(src, tgt)
+        self.rewriter = ExprRewriter(src_pats, tgt_pats)
 
     def __call__(self, wl: Workload, fold_param: bool = True, new_name: Optional[str] = None) \
             -> Workload:
@@ -63,15 +78,17 @@ class Substitution:
 
 
 class _SrcPatChecker(NodeVisitor):
-    def __init__(self):
+    def __init__(self, src_nodes: Dict[Node, Any], src_limit: Set[Union[Wildcard, Var]]):
         super().__init__()
-        self.wildcard_vars: Set[Union[Wildcard, Var]] = set()
+        # Target pattern cannot contain new wildcard or variable nodes
+        self.visited = src_nodes
+        self.src_limit = src_limit
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        self.wildcard_vars.add(wildcard)
+        self.src_limit.add(wildcard)
 
     def visit_var(self, var: Var) -> Any:
-        self.wildcard_vars.add(var)
+        self.src_limit.add(var)
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, AttrExpr):
@@ -97,19 +114,19 @@ class _SrcAttrChecker(AttrVisitor):
 
 
 class _TgtPatChecker(NodeVisitor):
-    def __init__(self, src_nodes: Set[Node], wildcard_vars: Set[Union[Wildcard, Var]]):
+    def __init__(self, src_nodes: Dict[Node, Any], src_limits: Set[Union[Wildcard, Var]]):
         super().__init__()
         self.src_nodes = src_nodes
-        self.wildcard_vars = wildcard_vars
+        self.src_limits = src_limits
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        if not self.wildcard_vars.__contains__(wildcard):
+        if not self.src_limits.__contains__(wildcard):
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
     def visit_var(self, var: Var) -> Any:
-        if not self.wildcard_vars.__contains__(var):
+        if not self.src_limits.__contains__(var):
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
@@ -142,7 +159,7 @@ class _TgtPatChecker(NodeVisitor):
 
 
 class _TgtAttrChecker(AttrVisitor):
-    def __init__(self, src_nodes: Set[Node]):
+    def __init__(self, src_nodes: Dict[Node, Any]):
         self.src_nodes = src_nodes
 
     def visit_get_attr(self, get_attr: GetAttr):
@@ -155,7 +172,7 @@ class _TgtAttrChecker(AttrVisitor):
 @relay.transform.function_pass(opt_level=0)
 class _SubstFuncPass:
     def __init__(self, rewriter):
-        self.rewriter = rewriter
+        self.rewriter: ExprRewriter = rewriter
 
     def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
                            _ctx: transform.PassContext) -> relay.Function:
@@ -165,144 +182,41 @@ class _SubstFuncPass:
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
-class _ExprRewriter(dfp.DFPatternCallback):
-    def __init__(self, src: Node, tgt: Node):
-        # Initialize fields
-        super().__init__()
-        self.src = src
-        self.tgt = tgt
-
-        # Create source pattern for matching
-        pat_creator = _PatternCreator()
-        self.pattern = pat_creator.visit(src)
-        self.gsl_to_dfp = pat_creator.visited
-
-    def callback(self, pre: relay.Expr, post: relay.Expr, node_map: ir.Map) -> relay.Expr:
-        # Map graph pattern nodes to real graph expressions
-        gsl_to_expr = dict([(gsl_node, node_map[dfp_node][0])
-                            for gsl_node, dfp_node in self.gsl_to_dfp.items()])
-
-        # Further check source graph with additional constraints
-        try:
-            _SrcGraphMatcher(gsl_to_expr).visit(self.src)
-        except _SrcMismatchException:
-            return pre  # failed to match, don't modify graph
-
-        # Build target graph
-        return _GraphBuilder(gsl_to_expr).visit(self.tgt)
-
-
-class _PatternCreator(NodeVisitor):
-    def visit_wildcard(self, wildcard: Wildcard) -> dfp.DFPattern:
-        return dfp.wildcard()
-
-    def visit_var(self, var: Var) -> dfp.DFPattern:
-        return dfp.is_var()
-
-    def visit_const(self, const: Const) -> dfp.DFPattern:
-        return dfp.is_constant()
-
-    def visit_call(self, call: Call) -> dfp.DFPattern:
-        super().visit_call(call)
-        args = [self.visited[node] for node in call.args]
-        return dfp.is_op(call.op)(*args)
-
-    # noinspection PyTypeChecker
-    def visit_tuple(self, tup: Tuple) -> dfp.DFPattern:
-        super().visit_tuple(tup)
-        fields = [self.visited[node] for node in tup.fields]
-        return dfp.is_tuple(fields)
-
-    def visit_getitem(self, getitem: GetItem) -> dfp.DFPattern:
-        super().visit_getitem(getitem)
-        return dfp.is_tuple_get_item(self.visited[getitem.tup], index=getitem.index)
-
-
-class _SrcMismatchException(Exception):
-    pass
-
-
-class _SrcGraphMatcher(NodeVisitor):
-    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
-        super().__init__()
-        self.gsl_to_expr = gsl_to_expr
-
-    def visit_const(self, const: Const) -> Any:
-        expr = self.gsl_to_expr[const]
-        if isinstance(const.value, np.ndarray) and \
-                (not np.array_equal(const.value, expr.data.asnumpy())):
-            raise _SrcMismatchException()
-
-    def visit_call(self, call: Call) -> Any:
-        super().visit_call(call)
-        expr = self.gsl_to_expr[call]
-        for name, attr in call.attrs.items():
-            if not self._attr_equal(expr.attrs[name], attr):
-                raise _SrcMismatchException()
-
-    def _attr_equal(self, ir_attr, pat_attr: AttrExpr) -> bool:
-        ir_val = util.cvt_ir_value(ir_attr)
-        pat_val = AttrEvaluator(self.gsl_to_expr).visit(pat_attr)
-        if isinstance(ir_val, (int, float, str)):
-            return ir_val == pat_val
-        elif isinstance(ir_val, list):
-            return ir_val == list(pat_val)
-        else:
-            return False
-
-
-class _GraphBuilder(NodeVisitor):
-    def __init__(self, gsl_to_expr: Dict[Node, relay.Expr]):
-        super().__init__()
-        self.gsl_to_expr = gsl_to_expr
-
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        return self.gsl_to_expr[wildcard]
-
-    def visit_var(self, var: Var) -> Any:
-        return self.gsl_to_expr[var]
-
-    def visit_const(self, const: Const) -> Any:
-        if isinstance(const.value, np.ndarray):
-            value = const.value
-        elif isinstance(const.value, AttrExpr):
-            value = AttrEvaluator(self.gsl_to_expr).visit(const.value)
-        else:
-            raise RuntimeError('Impossible case.')
-        return relay.const(value)
-
-    def visit_call(self, call: Call) -> Any:
-        args = [self.visit(a) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.gsl_to_expr).visit(attr))
-                      for name, attr in call.attrs.items()])
-        func = op.get_func(call.op)
-        return func(*args, **attrs)
-
-    def visit_tuple(self, tup: Tuple) -> Any:
-        return relay.Tuple([self.visit(f) for f in tup.fields])
-
-    def visit_getitem(self, getitem: GetItem) -> Any:
-        return self.visit(getitem.tup)[getitem.index]
-
-
 class ExprRewriter:
     def __init__(self, src_pats: List[Node], tgt_pats: List[Node]):
         if len(src_pats) != len(tgt_pats):
             raise ValueError('Number of source and target patterns does not match.')
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
+        self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
+        # Clear match history
+        self.history.clear()
+
+        # Greedily match all subgraphs
         while True:
+            # Find all outgoing edges of call, tuple and getitem in expression
+            out_visitor = _OutEdgeVisitor()
+            out_visitor.visit(expr)
+            out_edges = out_visitor.out
+
             # Find matched expressions with patterns
             pat_to_expr: Dict[Node, relay.Expr] = dict()
-            src_matched = []
+            src_matched = []  # expression matched in this round
             for src_pat in self.src_pats:
                 src_expr = self._find_match(src_pat, expr, pat_to_expr, src_matched)
                 if src_expr is None:
                     return expr  # even one subgraph is not found, exit immediately
                 else:
                     src_matched.append(src_expr)
+
+            # Add source patterns to match history
+            self.history.update(src_matched)
+
+            # Check whether this subgraph has outgoing edges not described by source patterns
+            if not self._check_out(self.src_pats, pat_to_expr, out_edges):
+                continue
 
             # Generate target expressions and map source to them
             tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt) for tgt in self.tgt_pats]
@@ -329,29 +243,108 @@ class ExprRewriter:
         while len(stack) > 0:
             # Pop an element from stack
             elem = stack.pop()
+            cur_expr = elem.expr
 
             if elem.count == 0:
                 # Add children to stack if this expression is visited for the first time
-                stack.append(StackElem(elem.expr, 1))
+                stack.append(StackElem(cur_expr, 1))
                 if isinstance(elem.expr, relay.Call):
-                    for a in reversed(elem.expr.args):
+                    for a in reversed(cur_expr.args):
                         update(a)
                 elif isinstance(elem.expr, relay.Tuple):
-                    for f in reversed(elem.expr.fields):
+                    for f in reversed(cur_expr.fields):
                         update(f)
                 elif isinstance(elem.expr, relay.TupleGetItem):
-                    update(elem.expr.tuple_value)
+                    update(cur_expr.tuple_value)
             else:
-                # Match pattern with this expression if it has been visited once
-                if src_matched.__contains__(elem.expr):
+                # Match pattern with this expression if it has been visited this round or is
+                # in match history
+                if src_matched.__contains__(cur_expr) or \
+                        self.history.__contains__(cur_expr):
                     continue  # matched expression cannot be matched again
                 matcher = _ExprMatcher(pat_to_expr.copy())
-                res = matcher.match(pat, elem.expr)
+                res = matcher.match(pat, cur_expr)
                 if res:
                     pat_to_expr.update(matcher.pat_to_expr)  # update map if matches
-                    return elem.expr
+                    return cur_expr
+                else:
+                    continue
 
         return None
+
+    ignore_out_class = (Wildcard, Var, Const)
+
+    @classmethod
+    def _check_out(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
+                   out_edges: Dict[relay.Expr, List[relay.Expr]]) -> bool:
+        # Create set of matched expressions
+        matched_expr = set(pat_to_expr.values())
+
+        # Initialize queue for pattern nodes
+        queue = deque(src_pats)
+        visited: Set[Node] = set(src_pats)
+
+        def update(node: Node):
+            if not visited.__contains__(node):
+                queue.append(node)
+                visited.add(node)
+
+        # Traverse pattern graph
+        while len(queue) > 0:
+            # Pop a node and add its children to queue
+            node = queue.popleft()
+            if isinstance(node, Call):
+                for a in node.args:
+                    update(a)
+            elif isinstance(node, Tuple):
+                for f in node.fields:
+                    update(f)
+            elif isinstance(node, GetItem):
+                update(node.tup)
+
+            # Skip if the node is output
+            if len(node.out) == 0:
+                continue
+
+            # Skip if the node is a variable, a constant or wildcard
+            # These three kinds of nodes will still be available after substitution
+            if isinstance(node, cls.ignore_out_class):
+                continue
+
+            # Check if matched expression has outgoing edges not described by pattern
+            for o in out_edges[pat_to_expr[node]]:
+                if not matched_expr.__contains__(o):
+                    return False
+
+        return True
+
+
+class _OutEdgeVisitor(relay.ExprVisitor):
+    def __init__(self):
+        super().__init__()
+        self.out: Dict[relay.Expr, List[relay.Expr]] = dict()
+
+    def visit_call(self, call: relay.Call):
+        super().visit_call(call)
+        for a in call.args:
+            self._add_edge(a, call)
+
+    def visit_tuple(self, tup: relay.Tuple):
+        super().visit_tuple(tup)
+        for f in tup.fields:
+            self._add_edge(f, tup)
+
+    def visit_tuple_getitem(self, t: relay.TupleGetItem):
+        super().visit_tuple_getitem(t)
+        self._add_edge(t.tuple_value, t)
+
+    def _add_edge(self, pred: relay.Expr, succ: relay.Expr):
+        if isinstance(pred, ExprRewriter.ignore_out_class):
+            return
+        if self.out.__contains__(pred):
+            self.out[pred].append(succ)
+        else:
+            self.out[pred] = [succ]
 
 
 class _RelayBuilder(NodeVisitor):
@@ -453,7 +446,7 @@ class _ExprMatcher:
 
         # Match attributes
         for name, attr in call.attrs.items():
-            if not self._attr_equal(attr, expr.attrs[name]):
+            if not self._attr_eq(attr, expr.attrs[name]):
                 return False
 
         # Match arguments
@@ -463,7 +456,7 @@ class _ExprMatcher:
 
         return True
 
-    def _attr_equal(self, pat_attr: AttrExpr, expr_attr) -> bool:
+    def _attr_eq(self, pat_attr: AttrExpr, expr_attr) -> bool:
         ir_val = util.cvt_ir_value(expr_attr)
         pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr)
         if isinstance(ir_val, (int, float, str)):
