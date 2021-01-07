@@ -94,7 +94,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         subst = rule.conv_batch_norm()
-        wl = subst(wl, new_name=wl.name + '_subst')
+        wl = subst(wl, fast_mode=True, new_name=wl.name + '_subst')
         wl.visualize()
         self.assertTrue(True)
 
@@ -109,8 +109,8 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         subst = rule.conv_batch_norm()
-        wl = subst(wl, new_name=wl.name + '_subst')
-        # wl.visualize()
+        wl = subst(wl, fast_mode=True, new_name=wl.name + '_subst')
+        wl.visualize()
         self.assertTrue(True)
 
 

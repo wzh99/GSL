@@ -42,15 +42,18 @@ class Substitution:
         for tgt in tgt_pats:
             _TgtPatChecker(src_visited, src_limit).visit(tgt)
 
-        # Create expression rewriter
-        self.rewriter = _ExprRewriter(src_pats, tgt_pats)
+        # Store source and target patterns
+        self.src_pats = src_pats
+        self.tgt_pats = tgt_pats
 
-    def __call__(self, wl: Workload, fold_param: bool = True, new_name: Optional[str] = None) \
-            -> Workload:
+    def __call__(self, wl: Workload, fast_mode: bool = False, fold_param: bool = True,
+                 new_name: Optional[str] = None) -> Workload:
         """
         Apply substitution to workload.
         :param wl: Workload whose graph is to be altered.
-        :param fold_param: whether to pre-compute nodes whose operands are already available.
+        :param fast_mode: Whether to apply substitution as fast as possible. Some checks to
+        ensure safety of substitution will be skipped.
+        :param fold_param: Whether to pre-compute nodes whose operands are already available.
         :return New workload after application of substitution rule.
         """
 
@@ -59,7 +62,8 @@ class Substitution:
             new_name = wl.name
 
         # Apply substitution to graph
-        mod = _SubstFuncPass(self.rewriter)(wl.mod)
+        rewriter = _ExprRewriter(self.src_pats, self.tgt_pats, fast_mode)
+        mod = _SubstFuncPass(rewriter)(wl.mod)
         if fold_param:
             fold_pass = ParamFoldPass(wl.params)
             mod = fold_pass(mod)
@@ -184,21 +188,23 @@ class _SubstFuncPass:
 
 
 class _ExprRewriter:
-    def __init__(self, src_pats: List[Node], tgt_pats: List[Node]):
+    def __init__(self, src_pats: List[Node], tgt_pats: List[Node], fast_mode: bool = False):
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
+        self.fast_mode = fast_mode
         self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
-        # Clear match history
-        self.history.clear()
+        # Apply substitution in one visit in certain settings
+        if self.fast_mode and len(self.src_pats) == 1:
+            return _SinglePatRewriter(self).visit(expr)
 
         # Greedily match all subgraphs
         while True:
             # Find all outgoing edges of call, tuple and getitem in expression
-            succ_visitor = _SuccVisitor()
+            succ_visitor = _SuccMapper()
             succ_visitor.visit(expr)
-            out_edges = succ_visitor.succ_map
+            succ_map = succ_visitor.succ_map
 
             # Find matched expressions with patterns
             pat_to_expr: Dict[Node, relay.Expr] = dict()
@@ -214,8 +220,9 @@ class _ExprRewriter:
             self.history.update(src_matched)
 
             # Check whether this subgraph has outgoing edges not described by source patterns
-            if not self._check_succ(self.src_pats, pat_to_expr, out_edges):
-                continue
+            if not self.fast_mode:
+                if not self.check_succ(self.src_pats, pat_to_expr, succ_map):
+                    continue
 
             # Generate target expressions and map source to them
             tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt) for tgt in self.tgt_pats]
@@ -274,8 +281,8 @@ class _ExprRewriter:
     ignore_out_class = (Wildcard, Var, Const)
 
     @classmethod
-    def _check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
-                    expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
+    def check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
+                   expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
         # Create set of matched expressions
         matched_expr = set(pat_to_expr.values())
 
@@ -312,7 +319,7 @@ class _ExprRewriter:
         return True
 
 
-class _SuccVisitor(relay.ExprVisitor):
+class _SuccMapper(relay.ExprVisitor):
     def __init__(self):
         super().__init__()
         self.succ_map: Dict[relay.Expr, List[relay.Expr]] = dict()
@@ -349,7 +356,9 @@ class _RelayBuilder(NodeVisitor):
         if self.pat_to_expr.__contains__(node):
             return self.pat_to_expr[node]
         else:
-            return super().visit(node)
+            expr = super().visit(node)
+            self.pat_to_expr[node] = expr
+            return expr
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, np.ndarray):
@@ -386,11 +395,8 @@ class _RewriteMutator(relay.ExprMutator):
             return self.memo_map[expr]
         else:
             ret = super().visit(expr)
-            if ret != expr:
-                self.memo_map[expr] = ret
-                return ret
-            else:
-                return expr
+            self.memo_map[expr] = ret
+            return ret
 
     def visit_call(self, call: relay.Call):
         new_args, changed = self._visit_args(call.args)
@@ -424,6 +430,27 @@ class _RewriteMutator(relay.ExprMutator):
             else:
                 new_args.append(a)
         return new_args, changed
+
+
+class _SinglePatRewriter(_RewriteMutator):
+    def __init__(self, rewriter: _ExprRewriter):
+        super().__init__({})
+        self.rewriter = rewriter
+        self.src_pat = rewriter.src_pats[0]
+        self.tgt_pat = rewriter.tgt_pats[0]
+
+    def visit(self, expr: relay.Expr):
+        # Rewrite predecessors
+        expr = super().visit(expr)
+
+        # Match pattern with this expression
+        pat_to_expr: Dict[Node, relay.Expr] = {}
+        matcher = _ExprMatcher(pat_to_expr)
+        if not matcher.match(self.src_pat, expr):
+            return expr
+
+        # Build new expression
+        return _RelayBuilder(pat_to_expr).visit(self.tgt_pat)
 
 
 class _ExprMatcher:
