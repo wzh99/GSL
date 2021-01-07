@@ -5,7 +5,7 @@ import tvm
 from graphviz import Digraph
 from tvm import ir, runtime, relay, transform
 
-from . import _default_dtype
+from . import default_dtype
 
 
 class Workload:
@@ -14,7 +14,7 @@ class Workload:
     """
 
     def __init__(self, mod: ir.IRModule, params: Dict[str, Union[runtime.NDArray, np.ndarray]],
-                 dtype: str = _default_dtype, name: str = ''):
+                 dtype: str = default_dtype, name: str = ''):
         """
         Constructor.
         :param mod: Relay IR module defining computation graph of the model.
@@ -35,12 +35,12 @@ class Workload:
     @staticmethod
     def _cvt_param(x: Union[runtime.NDArray, np.ndarray]) -> np.ndarray:
         if isinstance(x, runtime.NDArray):
-            return np.array(x.asnumpy(), dtype=_default_dtype)
+            return np.array(x.asnumpy(), dtype=default_dtype)
         else:
-            return np.array(x, dtype=_default_dtype)
+            return np.array(x, dtype=default_dtype)
 
     @staticmethod
-    def from_expr(expr: relay.Expr, input_names: Set[str], dtype: str = _default_dtype,
+    def from_expr(expr: relay.Expr, input_names: Set[str], dtype: str = default_dtype,
                   name: str = ''):
         """
         Create a workload from a Relay expression. All free variables become parameters of the
@@ -67,7 +67,7 @@ class Workload:
         return Workload(mod, params, dtype=dtype, name=name)
 
     @staticmethod
-    def from_keras(model, shape: Dict[str, Tuple[int, ...]], dtype: str = _default_dtype):
+    def from_keras(model, shape: Dict[str, Tuple[int, ...]], dtype: str = default_dtype):
         """
         Build workload from a Keras model.
         :param model: The Keras model to be converted.

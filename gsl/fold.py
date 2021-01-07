@@ -3,7 +3,7 @@ from typing import Dict, List, Any, Optional, Callable
 import numpy as np
 from tvm import relay, transform, ir, tir
 
-from . import _default_dtype, util
+from . import default_dtype, util
 
 
 @relay.transform.function_pass(opt_level=0)
@@ -67,7 +67,7 @@ class _ParamFolder(relay.ExprMutator):
         values = []
         for a in args:
             if isinstance(a, relay.Constant):
-                values.append(np.array(a.data.asnumpy(), dtype=_default_dtype))
+                values.append(np.array(a.data.asnumpy(), dtype=default_dtype))
             elif isinstance(a, relay.Var) and self.params.__contains__(a.name_hint):
                 values.append(self.params[a.name_hint])
             else:

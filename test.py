@@ -83,20 +83,34 @@ class RuleTest(unittest.TestCase):
 
 
 class ModelTest(unittest.TestCase):
-
     def test_resnet(self):
         print('ResNet')
 
         # Create model
         import model
-        resnet = model.resnet(3)
-        wl = Workload.from_keras(resnet, {'input_1': model.batch_shape_nchw})
+        net = model.resnet.get_model(3)
+        wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
         # wl.visualize()
 
         # Apply substitution
         subst = rule.conv_batch_norm()
         wl = subst(wl, new_name=wl.name + '_subst')
         wl.visualize()
+        self.assertTrue(True)
+
+    def test_nasnet(self):
+        print('NASNet')
+
+        # Create model
+        import model
+        net = model.nasnet.get_model(1)
+        wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
+        # wl.visualize()
+
+        # Apply substitution
+        subst = rule.conv_batch_norm()
+        wl = subst(wl, new_name=wl.name + '_subst')
+        # wl.visualize()
         self.assertTrue(True)
 
 
@@ -106,6 +120,7 @@ if __name__ == '__main__':
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_conv_batch_norm'),
-        ModelTest('test_resnet'),
+        # ModelTest('test_resnet'),
+        ModelTest('test_nasnet'),
     ])
     unittest.TextTestRunner().run(suite)

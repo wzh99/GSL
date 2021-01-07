@@ -1,14 +1,12 @@
-from tensorflow import keras
+from tensorflow import keras, Tensor
 from tensorflow.keras import layers, regularizers
 
-batch_shape_nhwc = (4, 32, 32, 3)
-batch_shape_nchw = (4, 3, 32, 32)
-bn_eps = 1e-5
+from .common import batch_shape_nhwc, bn_eps
 
 l2_reg = regularizers.l2(1e-4)
 
 
-def resnet(num_stacked: int, load_weights: bool = False) -> keras.Model:
+def get_model(num_stacked: int, load_weights: bool = False) -> keras.Model:
     input_data = layers.Input(batch_input_shape=batch_shape_nhwc)
     x = layers.Conv2D(16, 3, padding='same', use_bias=False,
                       name='input_conv', kernel_regularizer=l2_reg)(input_data)
@@ -32,7 +30,7 @@ def resnet(num_stacked: int, load_weights: bool = False) -> keras.Model:
 
 
 # noinspection PyTypeChecker
-def _res_block(x, filters: int, name: str, strides: int = 1):
+def _res_block(x: Tensor, filters: int, name: str, strides: int = 1) -> Tensor:
     if strides == 1:
         shortcut = x
     else:
