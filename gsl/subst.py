@@ -432,25 +432,32 @@ class _RewriteMutator(relay.ExprMutator):
         return new_args, changed
 
 
-class _SinglePatRewriter(_RewriteMutator):
+class _SinglePatRewriter(relay.ExprMutator):
     def __init__(self, rewriter: _ExprRewriter):
-        super().__init__({})
+        super().__init__()
         self.rewriter = rewriter
         self.src_pat = rewriter.src_pats[0]
         self.tgt_pat = rewriter.tgt_pats[0]
 
     def visit(self, expr: relay.Expr):
+        # Directly return if it has been visited before
+        if self.memo_map.__contains__(expr):
+            return self.memo_map[expr]
+
         # Rewrite predecessors
-        expr = super().visit(expr)
+        new_expr = super().visit(expr)
+        self.memo_map[expr] = new_expr
 
         # Match pattern with this expression
         pat_to_expr: Dict[Node, relay.Expr] = {}
         matcher = _ExprMatcher(pat_to_expr)
-        if not matcher.match(self.src_pat, expr):
-            return expr
+        if not matcher.match(self.src_pat, new_expr):
+            return new_expr
 
         # Build new expression
-        return _RelayBuilder(pat_to_expr).visit(self.tgt_pat)
+        new_expr = _RelayBuilder(pat_to_expr).visit(self.tgt_pat)
+        self.memo_map[expr] = new_expr
+        return new_expr
 
 
 class _ExprMatcher:
