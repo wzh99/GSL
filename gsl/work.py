@@ -20,6 +20,8 @@ class Workload:
         :param mod: Relay IR module defining computation graph of the model.
         :param params: Mapping from parameter names to values. Internally, the values are stored
         in `np.ndarray`s. NDArray values will be converted to that type.
+        :param dtype: Data type of new workload.
+        :param name: Name of the new workload.
         """
         self.mod = transform.Sequential(passes=[
             _AlterDType(dtype),
@@ -64,6 +66,18 @@ class Workload:
 
         return Workload(mod, params, dtype=dtype, name=name)
 
+    @staticmethod
+    def from_keras(model, shape: Dict[str, Tuple[int, ...]], dtype: str = _default_dtype):
+        """
+        Build workload from a Keras model.
+        :param model: The Keras model to be converted.
+        :param shape: Specification of input shapes.
+        :param dtype: Data type of target workload.
+        :return: The built workload object.
+        """
+        mod, params = relay.frontend.from_keras(model, shape=shape)
+        return Workload(mod, params, dtype=dtype, name=model.name)
+
     def build(self, target: str = 'llvm', config: Dict[str, Any] = None):
         """
         Build workload to run on a certain target platform.
@@ -83,6 +97,8 @@ class Workload:
         """
         return self.func(**inputs, **self.params).asnumpy()
 
+    fontname = 'LM Mono 12 Regular'
+
     def visualize(self, path: str = 'out', **attrs):
         """
         Visualize computation graph of this workload.
@@ -90,7 +106,8 @@ class Workload:
         :param attrs: Attributes for plotting nodes.
         """
         graph = Digraph(name=self.name)
-        _ExprVisualizer(graph, **attrs).visit_function(self.mod['main'])
+        viz = _ExprVisualizer(graph, fontname=self.fontname, **attrs)
+        viz.visit_function(self.mod['main'])
         graph.view(directory=path)
 
 

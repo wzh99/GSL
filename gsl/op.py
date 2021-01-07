@@ -35,6 +35,7 @@ num_inputs = {
     nn.relu: 1,
     nn.pad: 1,
     nn.dense: 2,
+    nn.softmax: 1,
     nn.batch_matmul: 2,
 }
 

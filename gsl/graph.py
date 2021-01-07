@@ -248,10 +248,13 @@ class NodeVisitor:
 
 
 class _PatternVisualizer(NodeVisitor):
+    fontname = 'LM Mono 12 Regular'
+
     def __init__(self, graph: Digraph, **attrs):
         super().__init__()
         self.graph = graph
         self.attrs = attrs
+        self.attrs['fontname'] = self.fontname
         self.counter = 0
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:

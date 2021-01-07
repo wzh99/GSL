@@ -206,7 +206,7 @@ class _ExprRewriter:
             for src_pat in self.src_pats:
                 src_expr = self._find_match(src_pat, expr, pat_to_expr, src_matched)
                 if src_expr is None:
-                    return expr  # even one subgraph is not found, exit immediately
+                    return expr  # even one match is not found, exit immediately
                 else:
                     src_matched.append(src_expr)
 
@@ -256,8 +256,8 @@ class _ExprRewriter:
                 elif isinstance(elem.expr, relay.TupleGetItem):
                     update(cur_expr.tuple_value)
             else:
-                # Match pattern with this expression if it has been visited this round or is
-                # in match history
+                # Do not match this expression if it has been visited this round or is in match
+                # history
                 if src_matched.__contains__(cur_expr) or \
                         self.history.__contains__(cur_expr):
                     continue  # matched expression cannot be matched again
@@ -343,26 +343,26 @@ class _SuccVisitor(relay.ExprVisitor):
 class _RelayBuilder(NodeVisitor):
     def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
         super().__init__()
-        self.visited = pat_to_expr
+        self.pat_to_expr = pat_to_expr
 
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        return self.visited[wildcard]
-
-    def visit_var(self, var: Var) -> Any:
-        return self.visited[var]
+    def visit(self, node: Node):
+        if self.pat_to_expr.__contains__(node):
+            return self.pat_to_expr[node]
+        else:
+            return super().visit(node)
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, AttrExpr):
-            value = AttrEvaluator(self.visited).visit(const.value)
+            value = AttrEvaluator(self.pat_to_expr).visit(const.value)
         else:
             raise RuntimeError('Impossible case.')
         return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.visited).visit(attr))
+        attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr))
                       for name, attr in call.attrs.items()])
         func = op.get_func(call.op)
         return func(*args, **attrs)
@@ -382,7 +382,48 @@ class _RewriteMutator(relay.ExprMutator):
     def visit(self, expr: relay.Expr):
         if self.expr_map.__contains__(expr):
             return self.expr_map[expr]
-        return super().visit(expr)
+        elif self.memo_map.__contains__(expr):
+            return self.memo_map[expr]
+        else:
+            ret = super().visit(expr)
+            if ret != expr:
+                self.memo_map[expr] = ret
+                return ret
+            else:
+                return expr
+
+    def visit_call(self, call: relay.Call):
+        new_args, changed = self._visit_args(call.args)
+        if changed:
+            return relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
+        else:
+            return call
+
+    def visit_tuple(self, tup: relay.Tuple):
+        new_fields, changed = self._visit_args(tup.fields)
+        if changed:
+            return relay.Tuple(new_fields, span=tup.span)
+        else:
+            return tup
+
+    def visit_tuple_getitem(self, getitem: relay.TupleGetItem):
+        new_tup, changed = self._visit_args([getitem.tuple_value])
+        if changed:
+            return relay.TupleGetItem(new_tup[0], getitem.index)
+        else:
+            return getitem
+
+    def _visit_args(self, args: List[relay.Expr]):
+        changed = False
+        new_args = []
+        for a in args:
+            ret = self.visit(a)
+            if ret != a:
+                new_args.append(ret)
+                changed = True
+            else:
+                new_args.append(a)
+        return new_args, changed
 
 
 class _ExprMatcher:
