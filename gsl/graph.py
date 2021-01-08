@@ -76,12 +76,33 @@ class Var(Node):
     not defined in source graph.
     """
     # Ad-hoc attributes
-    attrs = {'shape', 'dtype'}
+    avail_attrs = {'shape', 'dtype'}
+
+    def __init__(self, **raw_attrs):
+        super().__init__()
+
+        # Check attributes for variable
+        self.attrs: Dict[str, AttrExpr] = {}
+        for name, attr in raw_attrs.items():
+            if not self.avail_attrs.__contains__(name):
+                raise AttributeError(
+                    'Attribute \'{}\' not found in variable node'.format(name)
+                )
+            self.attrs[name] = to_attr(attr)
 
     def __getattr__(self, name: str):
-        if not Var.attrs.__contains__(name):
+        if not Var.avail_attrs.__contains__(name):
             raise AttributeError('Attribute \'{}\' not found in variable node.'.format(name))
         return GetAttr(self, name)
+
+    @staticmethod
+    def get_expr_attr(var: relay.Var, name: str):
+        if name == 'shape':
+            return var.type_annotation.concrete_shape
+        elif name == 'dtype':
+            return var.type_annotation.dtype
+        else:
+            raise RuntimeError('Invalid attribute name.')
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
@@ -302,6 +323,9 @@ class AttrEvaluator(AttrVisitor):
     def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
         self.pat_to_expr = pat_to_expr
 
+    def visit_any(self, a: AnyAttr):
+        return None
+
     def visit_const(self, const: ConstAttr):
         return const.value
 
@@ -313,14 +337,9 @@ class AttrEvaluator(AttrVisitor):
 
         # Access attribute according to type of node
         if isinstance(node, Call):
-            return expr.attrs[get_attr.name]
+            return expr.attrs[name]
         elif isinstance(node, Var):
-            if name == 'shape':
-                return expr.type_annotation.concrete_shape
-            elif name == 'dtype':
-                return expr.type_annotation.dtype
-            else:
-                raise RuntimeError('Impossible case.')
+            return Var.get_expr_attr(expr, name)
         else:
             raise RuntimeError('Impossible case.')
 

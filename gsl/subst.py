@@ -94,6 +94,8 @@ class _SrcPatChecker(NodeVisitor):
 
     def visit_var(self, var: Var) -> Any:
         self.src_limit.add(var)
+        for a in var.attrs.values():
+            _SrcAttrChecker(self.visited).visit(a)
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, AttrExpr):
@@ -488,9 +490,17 @@ class _ExprMatcher:
             self.pat_to_expr[pat] = expr
         return res
 
-    @classmethod
-    def match_var(cls, _var: Var, expr: relay.Expr) -> bool:
-        return isinstance(expr, relay.Var)
+    def match_var(self, var: Var, expr: relay.Expr) -> bool:
+        # Match variable node
+        if not isinstance(expr, relay.Var):
+            return False
+
+        # Match attributes
+        for name, attr in var.attrs.items():
+            if not self._match_attr(attr, Var.get_expr_attr(expr, name)):
+                return False
+
+        return True
 
     @classmethod
     def match_const(cls, const: Const, expr: relay.Expr) -> bool:
@@ -524,18 +534,30 @@ class _ExprMatcher:
 
         # Match attributes
         for name, attr in call.attrs.items():
-            if not self._attr_eq(attr, expr.attrs[name]):
+            if not self._match_attr(attr, expr.attrs[name]):
                 return False
 
         return True
 
-    def _attr_eq(self, pat_attr: AttrExpr, expr_attr) -> bool:
-        ir_val = util.cvt_ir_value(expr_attr)
+    def _match_attr(self, pat_attr: AttrExpr, expr_attr) -> bool:
         pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr)
-        if isinstance(ir_val, (int, float, str)):
-            return ir_val == pat_val
-        elif isinstance(ir_val, list):
-            return ir_val == list(pat_val)
+        pat_val = util.cvt_ir_value(pat_val)
+        expr_val = util.cvt_ir_value(expr_attr)
+        return self._match_val(pat_val, expr_val)
+
+    @classmethod
+    def _match_val(cls, pat_val, expr_val) -> bool:
+        if pat_val is None:
+            return True  # `None` matches any value
+        elif isinstance(pat_val, (int, float, str)):
+            return pat_val == expr_val
+        elif isinstance(pat_val, (tuple, list)) and isinstance(expr_val, (tuple, list)):
+            if len(pat_val) != len(expr_val):
+                return False
+            for p, e in zip(pat_val, expr_val):
+                if not cls._match_val(p, e):
+                    return False
+            return True
         else:
             return False
 

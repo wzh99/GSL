@@ -138,6 +138,6 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_conv_batch_norm'),
         # ModelTest('test_resnet'),
-        ModelTest('test_nasnet'),
+        # ModelTest('test_nasnet'),
     ])
     unittest.TextTestRunner().run(suite)

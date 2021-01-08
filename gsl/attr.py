@@ -35,6 +35,13 @@ class AttrExpr:
         return GetItemAttr(self, index)
 
 
+class AnyAttr(AttrExpr):
+    """
+    Matches any attribute value.
+    """
+    pass
+
+
 class ConstAttr(AttrExpr):
     """
     A compile-time constant attribute value.
@@ -82,13 +89,15 @@ class GetItemAttr(AttrExpr):
         self.index = index
 
 
-def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list]) -> AttrExpr:
+def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
     """
     Create an attribute expression with given value.
     :param val: All types of values that are or can be converted to an attribute expression.
     :return: Attribute expression created from given value.
     """
-    if isinstance(val, AttrExpr):
+    if val is None:
+        return AnyAttr()
+    elif isinstance(val, AttrExpr):
         return val
     elif isinstance(val, attr_value_class):
         return ConstAttr(val)
@@ -97,7 +106,7 @@ def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list]) -> AttrExpr:
     elif isinstance(val, tuple):
         return TupleAttr(*val)
     else:
-        raise ValueError(
+        raise TypeError(
             'Cannot convert value of type \'{}\' to attribute.'.format(val.__class__)
         )
 
@@ -122,7 +131,9 @@ class BinaryExpr(AttrExpr):
 
 class AttrVisitor:
     def visit(self, attr: AttrExpr):
-        if isinstance(attr, ConstAttr):
+        if isinstance(attr, AnyAttr):
+            return self.visit_any(attr)
+        elif isinstance(attr, ConstAttr):
             return self.visit_const(attr)
         elif isinstance(attr, GetAttr):
             return self.visit_get_attr(attr)
@@ -136,6 +147,9 @@ class AttrVisitor:
             return self.visit_binary(attr)
         else:
             raise RuntimeError('Unknown attribute type.')
+
+    def visit_any(self, a: AnyAttr):
+        pass
 
     def visit_const(self, const: ConstAttr):
         pass

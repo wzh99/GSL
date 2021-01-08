@@ -53,11 +53,6 @@ class _ParamFolder(relay.ExprMutator):
                 # This way, the semantic is similar to `np.diag`.
                 data = self._get_values(call.args[1:2])[0]
                 return self._add_param(np.diag(data))
-            elif op_name == 'nn.batch_matmul':
-                args = self._get_values(call.args)
-                return self._add_param(
-                    np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1)))
-                )
             else:
                 return call
         except _FoldException:
@@ -76,7 +71,7 @@ class _ParamFolder(relay.ExprMutator):
 
     @classmethod
     def _cvt_attrs(cls, attrs: Optional[ir.Attrs]) -> Dict[str, Any]:
-        if attrs is None or len(attrs.keys()) == 0:
+        if (not isinstance(attrs, ir.Attrs)) or len(attrs.keys()) == 0:
             return {}
         else:
             return dict([(name, cls._cvt_value(util.cvt_ir_value(attrs[name])))
@@ -124,4 +119,6 @@ _direct_mapped = {
 
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
     'expand_dims': lambda args, attrs: np.expand_dims(args[0], attrs['axis']),
+    'nn.batch_matmul':
+        lambda args, _: np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1))),
 }

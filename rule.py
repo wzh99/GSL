@@ -54,7 +54,7 @@ def parallel_conv():
     # Input
     x = Wildcard()
     w1 = Var()
-    w2 = Var()
+    w2 = Var(shape=w1.shape)
 
     # Source pattern
     conv1 = Call('nn.conv2d', x, w1)
