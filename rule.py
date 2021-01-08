@@ -6,10 +6,10 @@ def trans_trans():
     # Input
     x = Wildcard()
 
-    # Source graph: (A^T)^T
+    # Source pattern: (A^T)^T
     y1 = Call('transpose', Call('transpose', x, axes=(0, 2, 1)), axes=(0, 2, 1))
 
-    # Target graph: A
+    # Target pattern: A
     y2 = x
 
     # Build substitution
@@ -35,6 +35,21 @@ def bias_add_add():
     return Substitution(y1, y2)
 
 
+def split_concat():
+    # Input
+    x = Wildcard()
+
+    # Source pattern: concat(split(x, axis=a), axis=a)
+    split = Call('split', x, indices_or_sections=2)
+    y1 = Call('concatenate', Tuple(split[0], split[1]), axis=split.axis)
+
+    # Target pattern: x
+    y2 = x
+
+    # Build substitution
+    return Substitution(y1, y2)
+
+
 def parallel_conv():
     # Input
     x = Wildcard()
@@ -48,7 +63,8 @@ def parallel_conv():
 
     # Target pattern
     w = Call('concatenate', Tuple(w1, w2), axis=0)
-    conv = Call('nn.conv2d', x, w, padding=conv1.padding)
+    conv = Call('nn.conv2d', x, w, strides=conv1.strides, padding=conv1.padding,
+                dilation=conv1.dilation, groups=conv1.groups)
     split = Call('split', conv, indices_or_sections=2, axis=1)
 
     # Build substitution
@@ -68,7 +84,7 @@ def conv_batch_norm():
     conv = Call('nn.conv2d', x, w)
     bn = Call('nn.batch_norm', conv, gamma, beta, moving_mean, moving_var)
     y1 = bn[0]
-    # y1.visualize('conv_bn_pat', fontname=self.fontname)
+    # y1.visualize('conv_bn_pat')
 
     # Target pattern
     k = gamma / Call('sqrt', moving_var + bn.epsilon)
@@ -82,7 +98,7 @@ def conv_batch_norm():
                     dilation=conv.dilation, groups=conv.groups)
     bias = beta - moving_mean * k
     y2 = Call('nn.bias_add', new_conv, bias)
-    # y2.visualize('conv_bias_add_pat', fontname=self.fontname)
+    # y2.visualize('conv_bias_add_pat')
 
     # Build substitution
     return Substitution(y1, y2)

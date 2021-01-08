@@ -41,6 +41,22 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_split_concat(self):
+        print('Split-Concat')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        split = relay.split(x, 2, axis=1)
+        y = relay.concatenate(split, 1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.split_concat()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_parallel_conv(self):
         print('Parallel Conv')
 
@@ -118,6 +134,7 @@ if __name__ == '__main__':
     suite = unittest.TestSuite(tests=[
         # RuleTest('test_trans_trans'),
         # RuleTest('test_bias_add_add'),
+        # RuleTest('test_split_concat'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_conv_batch_norm'),
         # ModelTest('test_resnet'),

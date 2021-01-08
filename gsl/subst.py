@@ -202,9 +202,12 @@ class _ExprRewriter:
         # Greedily match all subgraphs
         while True:
             # Find all outgoing edges of call, tuple and getitem in expression
-            succ_visitor = _SuccMapper()
-            succ_visitor.visit(expr)
-            succ_map = succ_visitor.succ_map
+            if not self.fast_mode:
+                succ_visitor = _SuccMapper()
+                succ_visitor.visit(expr)
+                succ_map = succ_visitor.succ_map
+            else:
+                succ_map = {}
 
             # Find matched expressions with patterns
             pat_to_expr: Dict[Node, relay.Expr] = dict()
@@ -327,18 +330,18 @@ class _SuccMapper(relay.ExprVisitor):
     def visit_call(self, call: relay.Call):
         super().visit_call(call)
         for a in call.args:
-            self._add_edge(a, call)
+            self._add_succ(a, call)
 
     def visit_tuple(self, tup: relay.Tuple):
         super().visit_tuple(tup)
         for f in tup.fields:
-            self._add_edge(f, tup)
+            self._add_succ(f, tup)
 
     def visit_tuple_getitem(self, t: relay.TupleGetItem):
         super().visit_tuple_getitem(t)
-        self._add_edge(t.tuple_value, t)
+        self._add_succ(t.tuple_value, t)
 
-    def _add_edge(self, pred: relay.Expr, succ: relay.Expr):
+    def _add_succ(self, pred: relay.Expr, succ: relay.Expr):
         if isinstance(pred, _ExprRewriter.ignore_out_class):
             return
         if self.succ_map.__contains__(pred):
@@ -512,14 +515,16 @@ class _ExprMatcher:
         if call.op != expr.op.name:
             return False
 
+        # Match arguments
+        # Arguments must be matched before attributes, because attribute matching may depend on
+        # match result of arguments.
+        for pat_arg, expr_arg in zip(call.args, expr.args):
+            if not self.match(pat_arg, expr_arg):
+                return False
+
         # Match attributes
         for name, attr in call.attrs.items():
             if not self._attr_eq(attr, expr.attrs[name]):
-                return False
-
-        # Match arguments
-        for pat_arg, expr_arg in zip(call.args, expr.args):
-            if not self.match(pat_arg, expr_arg):
                 return False
 
         return True
