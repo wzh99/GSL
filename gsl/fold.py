@@ -3,7 +3,8 @@ from typing import Dict, List, Any, Optional, Callable
 import numpy as np
 from tvm import relay, transform, ir, tir
 
-from . import default_dtype, util
+from . import util
+from .work import default_dtype
 
 
 @relay.transform.function_pass(opt_level=0)

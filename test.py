@@ -3,7 +3,7 @@ import unittest
 from tvm import relay
 
 import rule
-from gsl.work import Workload
+from gsl import Workload
 
 
 class RuleTest(unittest.TestCase):

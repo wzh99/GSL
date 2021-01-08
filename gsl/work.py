@@ -5,7 +5,7 @@ import tvm
 from graphviz import Digraph
 from tvm import ir, runtime, relay, transform
 
-from . import default_dtype
+default_dtype = 'float32'
 
 
 class Workload:
