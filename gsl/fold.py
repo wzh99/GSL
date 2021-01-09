@@ -1,7 +1,7 @@
 from typing import Dict, List, Any, Optional, Callable
 
 import numpy as np
-from tvm import relay, transform, ir, tir
+from tvm import relay, transform, ir
 
 from . import util
 from .work import default_dtype

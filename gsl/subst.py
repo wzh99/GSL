@@ -32,16 +32,20 @@ class Substitution:
         # Check if number of source and target pattern matches
         if len(src_pats) != len(tgt_pats):
             raise ValueError(
-                'Number of source and target patterns do not match.'
+                'Numbers of source and target patterns do not match.'
             )
 
         # Check source and target
-        src_visited: Dict[Node, Any] = dict()
-        src_limit: Set[Union[Wildcard, Var]] = set()
+        visited: Dict[Node, Any] = {}
         for src in src_pats:
-            _SrcPatChecker(src_visited, src_limit).visit(src)
+            if len(src.succ) != 0:
+                raise ValueError('Source output node cannot have successors.')
+            _SrcPatChecker(visited).visit(src)
+        visited.clear()
         for tgt in tgt_pats:
-            _TgtPatChecker(src_visited, src_limit).visit(tgt)
+            if len(tgt.succ) != 0:
+                raise ValueError('Target output node cannot have successors.')
+            _TgtPatChecker(visited).visit(tgt)
 
         # Store source and target patterns
         self.src_pats = src_pats
@@ -85,19 +89,17 @@ class Substitution:
 
 
 class _SrcPatChecker(NodeVisitor):
-    def __init__(self, src_nodes: Dict[Node, Any], src_limit: Set[Union[Wildcard, Var]]):
+    def __init__(self, visited: Dict[Node, Any]):
         super().__init__()
-        # Target pattern cannot contain new wildcard or variable nodes
-        self.visited = src_nodes
-        self.src_limit = src_limit
+        self.visited = visited
 
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        self.src_limit.add(wildcard)
-
-    def visit_var(self, var: Var) -> Any:
-        self.src_limit.add(var)
-        for a in var.attrs.values():
-            _SrcAttrChecker(self.visited).visit(a)
+    def visit(self, node: Node):
+        if (not self.visited.__contains__(node)) and node.is_used:
+            raise ValueError(
+                'Node in source pattern has been used in other substitutions.'
+            )
+        super().visit(node)
+        node.in_src = True
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, AttrExpr):
@@ -105,37 +107,38 @@ class _SrcPatChecker(NodeVisitor):
                 'Constant node in source graph cannot store an attribute expression.'
             )
 
-    def visit_call(self, call: Call) -> Any:
-        super().visit_call(call)
-        for v in call.attrs.values():
-            _SrcAttrChecker(self.visited).visit(v)
-
 
 class _SrcAttrChecker(AttrVisitor):
     def __init__(self, visited: Dict[Node, Any]):
         self.visited = visited
 
     def visit_get_attr(self, get_attr: GetAttr):
-        if not self.visited.__contains__(get_attr.node):
+        if not get_attr.node.in_src:
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
 
 
 class _TgtPatChecker(NodeVisitor):
-    def __init__(self, src_nodes: Dict[Node, Any], src_limits: Set[Union[Wildcard, Var]]):
+    def __init__(self, visited: Dict[Node, Any]):
         super().__init__()
-        self.src_nodes = src_nodes
-        self.src_limits = src_limits
+        self.visited = visited
+
+    def visit(self, node: Node):
+        if (not self.visited.__contains__(node)) and node.in_tgt:
+            raise ValueError(
+                'Node in target pattern has been used in other substitutions.'
+            )
+        node.in_tgt = True
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        if not self.src_limits.__contains__(wildcard):
+        if not wildcard.in_src:
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
     def visit_var(self, var: Var) -> Any:
-        if not self.src_limits.__contains__(var):
+        if not var.in_src:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
@@ -164,17 +167,14 @@ class _TgtPatChecker(NodeVisitor):
 
         # Check if all attribute expressions only contain reference to nodes in source graph
         for a in call.attrs.values():
-            _TgtAttrChecker(self.src_nodes).visit(a)
+            _TgtAttrChecker().visit(a)
 
 
 class _TgtAttrChecker(AttrVisitor):
-    def __init__(self, src_nodes: Dict[Node, Any]):
-        self.src_nodes = src_nodes
-
     def visit_get_attr(self, get_attr: GetAttr):
-        if not self.src_nodes.__contains__(get_attr.node):
+        if not get_attr.node.in_src:
             raise AttributeError(
-                'Attribute in target pattern refers to node not defined in source graph.'
+                'Attribute in target pattern refers to node not defined in source pattern.'
             )
 
 
@@ -228,7 +228,7 @@ class _ExprRewriter:
 
             # Check whether this subgraph has outgoing edges not described by source patterns
             if not self.fast_mode:
-                if not self.check_succ(self.src_pats, pat_to_expr, succ_map):
+                if not self._check_succ(self.src_pats, pat_to_expr, succ_map):
                     continue
 
             # Generate target expressions and map source to them
@@ -288,8 +288,8 @@ class _ExprRewriter:
     ignore_out_class = (Wildcard, Var, Const)
 
     @classmethod
-    def check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
-                   expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
+    def _check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
+                    expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
         # Create set of matched expressions
         matched_expr = set(pat_to_expr.values())
 

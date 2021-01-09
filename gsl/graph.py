@@ -16,10 +16,16 @@ class Node:
 
     def __init__(self):
         self.succ: List[Node] = []
+        self.in_src = False
+        self.in_tgt = False
 
     @property
     def pred(self):
         return []
+
+    @property
+    def is_used(self):
+        return self.in_src or self.in_tgt
 
     def __getitem__(self, index: int):
         return GetItem(self, index)
