@@ -2,6 +2,18 @@ from typing import Any
 
 from tvm import ir, tir
 
+default_font_name = ''
+
+
+def _set_default_font_name():
+    import sys
+    global default_font_name
+    sys_name = sys.platform
+    if sys_name == 'darwin':
+        default_font_name = 'Latin Modern Mono'
+    elif sys_name == 'win32':
+        default_font_name = 'LM Mono 12 Regular'
+
 
 def cvt_ir_value(val) -> Any:
     if isinstance(val, (tir.IntImm, tir.FloatImm, tir.StringImm)):
@@ -10,3 +22,6 @@ def cvt_ir_value(val) -> Any:
         return [cvt_ir_value(e) for e in val]
     else:
         return val
+
+
+_set_default_font_name()

@@ -4,6 +4,7 @@ import numpy as np
 import tvm
 from graphviz import Digraph
 from tvm import ir, runtime, relay, transform
+from .util import default_font_name
 
 default_dtype = 'float32'
 
@@ -97,16 +98,15 @@ class Workload:
         """
         return self.func(**inputs, **self.params).asnumpy()
 
-    fontname = 'LM Mono 12 Regular'
-
-    def visualize(self, path: str = 'out', **attrs):
+    def visualize(self, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
         Visualize computation graph of this workload.
         :param path: Path to save graph visualization.
-        :param attrs: Attributes for plotting nodes.
+        :param font_name: Name of the font used to display node texts.
+        :param attrs: Other attributes for GraphViz to plot the nodes.
         """
         graph = Digraph(name=self.name)
-        viz = _ExprVisualizer(graph, fontname=self.fontname, **attrs)
+        viz = _ExprVisualizer(graph, fontname=font_name, **attrs)
         viz.visit_function(self.mod['main'])
         graph.view(directory=path)
 

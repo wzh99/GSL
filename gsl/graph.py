@@ -6,6 +6,7 @@ from tvm import relay
 
 from . import op
 from .attr import *
+from .util import default_font_name
 
 
 class Node:
@@ -50,15 +51,16 @@ class Node:
     def __rtruediv__(self, other):
         return Call('divide', to_node(other), self)
 
-    def visualize(self, name: str, path: str = 'out', **attrs):
+    def visualize(self, name: str, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
         Visualize this graph pattern node.
         :param name: Name of the file.
         :param path: Directory to store the file.
-        :param attrs: Attributes of the nodes.
+        :param font_name: Name of the font used to display node texts.
+        :param attrs: Other attributes for GraphViz to plot the nodes.
         """
         graph = Digraph(name=name)
-        _PatternVisualizer(graph, **attrs).visit(self)
+        _PatternVisualizer(graph, fontname=font_name, **attrs).visit(self)
         graph.view(directory=path)
 
 
@@ -269,13 +271,10 @@ class NodeVisitor:
 
 
 class _PatternVisualizer(NodeVisitor):
-    fontname = 'LM Mono 12 Regular'
-
     def __init__(self, graph: Digraph, **attrs):
         super().__init__()
         self.graph = graph
         self.attrs = attrs
-        self.attrs['fontname'] = self.fontname
         self.counter = 0
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
@@ -339,6 +338,7 @@ class AttrEvaluator(AttrVisitor):
         if isinstance(node, Call):
             return expr.attrs[name]
         elif isinstance(node, Var):
+            assert isinstance(expr, relay.Var)
             return Var.get_expr_attr(expr, name)
         else:
             raise RuntimeError('Impossible case.')
