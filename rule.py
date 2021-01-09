@@ -71,6 +71,42 @@ def parallel_conv():
     return Substitution([conv1, conv2], [split[0], split[1]])
 
 
+def parallel_conv_expand_kernels():
+    # Input
+    x = Wildcard()
+    w1 = Var()
+    w2 = Var(shape=(w1.shape[0], None, None, None))
+
+    # Source pattern
+    def same_padding(h: AttrExpr, w: AttrExpr):
+        pad_h = (h - 1) // 2
+        pad_w = (w - 1) // 2
+        return pad_h, pad_w, pad_h, pad_w
+
+    conv1_pad = same_padding(w1.shape[2], w1.shape[3])
+    conv1 = Call('nn.conv2d', x, w1, padding=conv1_pad, strides=(1, 1), dilation=(1, 1))
+    conv2_pad = same_padding(w2.shape[2], w2.shape[3])
+    conv2 = Call('nn.conv2d', x, w2, padding=conv2_pad, strides=(1, 1), dilation=(1, 1),
+                 groups=conv1.groups)
+
+    # Target pattern
+    max_h, max_w = w1.shape[2].max(w2.shape[2]), w1.shape[3].max(w2.shape[3])
+    w1_pad_h = (max_h - w1.shape[2]) // 2
+    w1_pad_w = (max_w - w1.shape[3]) // 2
+    w1_pad = Call('nn.pad', w1, pad_width=((0, 0), (0, 0), (w1_pad_h,) * 2, (w1_pad_w,) * 2))
+    w2_pad_h = (max_h - w2.shape[2]) // 2
+    w2_pad_w = (max_w - w2.shape[3]) // 2
+    w2_pad = Call('nn.pad', w2, pad_width=((0, 0), (0, 0), (w2_pad_h,) * 2, (w2_pad_w,) * 2))
+    concat = Call('concatenate', Tuple(w1_pad, w2_pad), axis=0)
+    new_conv_pad = same_padding(max_h, max_w)
+    new_conv = Call('nn.conv2d', x, concat, padding=new_conv_pad, strides=(1, 1),
+                    dilation=(1, 1), groups=conv1.groups)
+    split = Call('split', new_conv, indices_or_sections=2, axis=1)
+
+    # Build substitution
+    return Substitution([conv1, conv2], [split[0], split[1]])
+
+
 def conv_batch_norm():
     # Input
     x = Wildcard()

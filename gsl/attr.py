@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Union, List
+from typing import Union, List, Any
 
 AttrValueType = Union[bool, int, float, str]
 attr_value_class = (bool, int, float, str)
@@ -9,6 +9,9 @@ class AttrExpr:
     """
     AST for attribute expression.
     """
+
+    def __getitem__(self, index: int):
+        return GetItemAttr(self, index)
 
     def __add__(self, other):
         return BinaryExpr(BinaryOp.ADD, self, to_attr(other))
@@ -29,10 +32,16 @@ class AttrExpr:
         return BinaryExpr(BinaryOp.MUL, to_attr(other), self)
 
     def __floordiv__(self, other):
-        return BinaryExpr(BinaryOp.DIV, self, to_attr(other))
+        return BinaryExpr(BinaryOp.FLOOR_DIV, self, to_attr(other))
 
-    def __getitem__(self, index: int):
-        return GetItemAttr(self, index)
+    def __rfloordiv__(self, other):
+        return BinaryExpr(BinaryOp.FLOOR_DIV, to_attr(other), self)
+
+    def max(self, other):
+        return BinaryExpr(BinaryOp.MAX, self, to_attr(other))
+
+    def min(self, other):
+        return BinaryExpr(BinaryOp.MIN, self, to_attr(other))
 
 
 class AnyAttr(AttrExpr):
@@ -92,6 +101,7 @@ class GetItemAttr(AttrExpr):
 def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
     """
     Create an attribute expression with given value.
+
     :param val: All types of values that are or can be converted to an attribute expression.
     :return: Attribute expression created from given value.
     """
@@ -115,7 +125,9 @@ class BinaryOp(Enum):
     ADD = '+'
     SUB = '-'
     MUL = '*'
-    DIV = '/'
+    FLOOR_DIV = '//'
+    MAX = 'max'
+    MIN = 'min'
 
 
 class BinaryExpr(AttrExpr):
@@ -128,9 +140,30 @@ class BinaryExpr(AttrExpr):
         self.lhs = lhs
         self.rhs = rhs
 
+    eval_func = {
+        BinaryOp.ADD: {
+            (int, int): int.__add__,
+        },
+        BinaryOp.SUB: {
+            (int, int): int.__sub__,
+        },
+        BinaryOp.MUL: {
+            (int, int): int.__mul__,
+        },
+        BinaryOp.FLOOR_DIV: {
+            (int, int): int.__floordiv__,
+        },
+        BinaryOp.MAX: {
+            (int, int): max,
+        },
+        BinaryOp.MIN: {
+            (int, int): min,
+        },
+    }
+
 
 class AttrVisitor:
-    def visit(self, attr: AttrExpr):
+    def visit(self, attr: AttrExpr) -> Any:
         if isinstance(attr, AnyAttr):
             return self.visit_any(attr)
         elif isinstance(attr, ConstAttr):
@@ -148,25 +181,25 @@ class AttrVisitor:
         else:
             raise RuntimeError('Unknown attribute type.')
 
-    def visit_any(self, a: AnyAttr):
+    def visit_any(self, a: AnyAttr) -> Any:
         pass
 
-    def visit_const(self, const: ConstAttr):
+    def visit_const(self, const: ConstAttr) -> Any:
         pass
 
-    def visit_get_attr(self, get_attr: GetAttr):
+    def visit_get_attr(self, get_attr: GetAttr) -> Any:
         pass
 
-    def visit_list(self, list_attr: ListAttr):
+    def visit_list(self, list_attr: ListAttr) -> Any:
         for f in list_attr.fields:
             self.visit(f)
 
-    def visit_tuple(self, tup_attr: TupleAttr):
+    def visit_tuple(self, tup_attr: TupleAttr) -> Any:
         for f in tup_attr.fields:
             self.visit(f)
 
-    def visit_getitem(self, getitem: GetItemAttr):
+    def visit_getitem(self, getitem: GetItemAttr) -> Any:
         self.visit(getitem.seq)
 
-    def visit_binary(self, binary: BinaryExpr):
+    def visit_binary(self, binary: BinaryExpr) -> Any:
         pass

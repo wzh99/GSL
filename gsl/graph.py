@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict
 
 import numpy as np
 from graphviz import Digraph
@@ -356,4 +356,14 @@ class AttrEvaluator(AttrVisitor):
         return self.visit(getitem.seq)[getitem.index]
 
     def visit_binary(self, binary: BinaryExpr):
-        raise NotImplementedError()
+        lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
+        ty_tup = (lv.__class__, rv.__class__)
+        bin_op = binary.op
+        op_func = BinaryExpr.eval_func[bin_op]
+        if not op_func.__contains__(ty_tup):
+            raise RuntimeError(
+                'Operator \'{}\' not defined for type ({}, {})'.format(
+                    bin_op.value, ty_tup[0], ty_tup[1]
+                )
+            )
+        return op_func[ty_tup](lv, rv)

@@ -64,14 +64,33 @@ class RuleTest(unittest.TestCase):
         x = relay.var('x', shape=(2, 2, 4, 4))
         w1 = relay.var('w1', shape=(2, 2, 3, 3))
         w2 = relay.var('w2', shape=(2, 2, 3, 3))
-        conv1 = relay.nn.conv2d(x, w1, padding=(1, 1))
-        conv2 = relay.nn.conv2d(x, w2, padding=(1, 1))
-        y = relay.concatenate([conv1, conv2], 1)
+        conv1 = relay.nn.conv2d(x, w1, padding=(1, 1, 1, 1))
+        conv2 = relay.nn.conv2d(x, w2, padding=(1, 1, 1, 1))
+        y = conv1 + conv2
         wl = Workload.from_expr(y, {'x'})
         print(wl.mod)
 
         # Apply substitution
         subst = rule.parallel_conv()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
+    def test_parallel_conv_expand_kernels(self):
+        print('Parallel Conv (Expand Kernels)')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        w1 = relay.var('w1', shape=(2, 2, 1, 1))
+        w2 = relay.var('w2', shape=(2, 2, 3, 3))
+        conv1 = relay.nn.conv2d(x, w1, padding=(0, 0, 0, 0))
+        conv2 = relay.nn.conv2d(x, w2, padding=(1, 1, 1, 1))
+        y = conv1 + conv2
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.parallel_conv_expand_kernels()
         wl = subst(wl)
         print(wl.mod)
         self.assertTrue(True)
@@ -86,7 +105,7 @@ class RuleTest(unittest.TestCase):
         beta = relay.var('beta', shape=(2,))
         moving_mean = relay.var('moving_mean', shape=(2,))
         moving_var = relay.var('moving_var', shape=(2,))
-        y = relay.nn.conv2d(x, w, padding=(1, 1))
+        y = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))
         y = relay.nn.batch_norm(y, gamma, beta, moving_mean, moving_var)[0]
         wl = Workload.from_expr(y, {'x'}, name='conv_bn')
         print(wl.mod)
@@ -136,6 +155,7 @@ if __name__ == '__main__':
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_split_concat'),
         # RuleTest('test_parallel_conv'),
+        RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_conv_batch_norm'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),

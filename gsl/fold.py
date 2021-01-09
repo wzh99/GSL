@@ -49,6 +49,10 @@ class _ParamFolder(relay.ExprMutator):
                 args = self._get_values(call.args)
                 attrs = self._cvt_attrs(call.attrs)
                 return self._add_param(_eval_funcs[op_name](args, attrs))
+            elif op_name == 'concatenate':
+                args = self._get_values(call.args[0].fields)
+                attrs = self._cvt_attrs(call.attrs)
+                return self._add_param(np.concatenate(args, axis=attrs['axis']))
             elif op_name == 'matrix_set_diag':
                 # In this project, we assume the first input of `matrix_set_diag` is always zero.
                 # This way, the semantic is similar to `np.diag`.
@@ -75,17 +79,7 @@ class _ParamFolder(relay.ExprMutator):
         if (not isinstance(attrs, ir.Attrs)) or len(attrs.keys()) == 0:
             return {}
         else:
-            return dict([(name, cls._cvt_value(util.cvt_ir_value(attrs[name])))
-                         for name in attrs.keys()])
-
-    @classmethod
-    def _cvt_value(cls, val) -> Any:
-        if isinstance(val, (tir.IntImm, tir.FloatImm, tir.StringImm)):
-            return val.value
-        elif isinstance(val, ir.Array):
-            return [cls._cvt_value(e) for e in val]
-        else:
-            return val
+            return dict([(name, util.cvt_ir_value(attrs[name])) for name in attrs.keys()])
 
     def _add_param(self, value: np.ndarray) -> relay.Var:
         name = self._next_param_name()
@@ -120,6 +114,7 @@ _direct_mapped = {
 
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
     'expand_dims': lambda args, attrs: np.expand_dims(args[0], attrs['axis']),
+    'nn.pad': lambda args, attrs: np.pad(args[0], attrs['pad_width']),
     'nn.batch_matmul':
         lambda args, _: np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1))),
 }
