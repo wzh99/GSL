@@ -54,6 +54,7 @@ class Node:
     def visualize(self, name: str, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
         Visualize this graph pattern node.
+
         :param name: Name of the file.
         :param path: Directory to store the file.
         :param font_name: Name of the font used to display node texts.
@@ -118,12 +119,13 @@ class Const(Node):
 
     def __init__(self, value: Union[ConstValueType, AttrExpr, None]):
         """
-        Constructor
+        Constructor.
+
         :param value: In source graph, if the value is provided, it only matches nodes with the
-        same value. Otherwise, any constant node will match. If the node also appears in target
-        graph, the value will be copied to new graph.
-        New constant nodes can be created in target graph. In target graph, the constant nodes can
-        also be specified by an attribute expression with respect to nodes in source graph. \
+            same value. Otherwise, any constant node will match. If the node also appears in
+            target graph, the value will be copied to new graph. New constant nodes can be created
+            in target graph. In target graph, the constant nodes can also be specified by an
+            attribute expression with respect to nodes in source graph.
         """
         super().__init__()
         if value is None:
@@ -141,6 +143,7 @@ class Const(Node):
 def to_node(val: Union[Node, ConstValueType]) -> Node:
     """
     Create a graph pattern node with given value
+
     :param val: All types of values that are or can be converted to an graph pattern node.
     :return: Graph pattern node created from given value.
     """

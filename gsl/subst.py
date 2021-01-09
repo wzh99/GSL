@@ -18,9 +18,10 @@ class Substitution:
     def __init__(self, src_pats: Union[Node, List[Node]], tgt_pats: Union[Node, List[Node]]):
         """
         Constructor.
+
         :param src_pats: A single source pattern, or a list of source patterns.
         :param tgt_pats: A single target pattern, or a list of target patterns. Order of patterns
-        in target pattern list must strictly follow the one in source pattern list.
+            in target pattern list must strictly follow the one in source pattern list.
         """
         # Convert source and target patterns to lists if necessary
         if isinstance(src_pats, Node):
@@ -50,11 +51,12 @@ class Substitution:
                  new_name: Optional[str] = None) -> Workload:
         """
         Apply substitution to workload.
+
         :param wl: Workload whose graph is to be altered.
         :param fast_mode: Whether to apply substitution as fast as possible. Some checks to
-        ensure safety of substitution will be skipped.
+            ensure safety of substitution will be skipped.
         :param fold_param: Whether to pre-compute nodes whose operands are already available.
-        :return New workload after application of substitution rule.
+        :return: New workload after applying the substitution.
         """
 
         # Keep original name if new name is not provided

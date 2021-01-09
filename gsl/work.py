@@ -18,9 +18,10 @@ class Workload:
                  dtype: str = default_dtype, name: str = ''):
         """
         Constructor.
+
         :param mod: Relay IR module defining computation graph of the model.
         :param params: Mapping from parameter names to values. Internally, the values are stored
-        in `np.ndarray`s. NDArray values will be converted to that type.
+            in `np.ndarray`s. NDArray values will be converted to that type.
         :param dtype: Data type of new workload.
         :param name: Name of the new workload.
         """
@@ -46,6 +47,7 @@ class Workload:
         """
         Create a workload from a Relay expression. All free variables become parameters of the
         function. Model parameters will be randomly generated.
+
         :param expr: Body expression of function
         :param input_names: Set of names of input tensors
         :param dtype: Data type of input tensors.
@@ -71,6 +73,7 @@ class Workload:
     def from_keras(model, shape: Dict[str, Tuple[int, ...]], dtype: str = default_dtype):
         """
         Build workload from a Keras model.
+
         :param model: The Keras model to be converted.
         :param shape: Specification of input shapes.
         :param dtype: Data type of target workload.
@@ -82,6 +85,7 @@ class Workload:
     def build(self, target: str = 'llvm', config: Dict[str, Any] = None):
         """
         Build workload to run on a certain target platform.
+
         :param target: The corresponding target.
         :param config: Configurations of building workload.
         """
@@ -93,6 +97,7 @@ class Workload:
     def __call__(self, **inputs) -> np.ndarray:
         """
         Execute workload with given inputs
+
         :param inputs: Input tensors of workload.
         :return: Computation result in numpy array.
         """
@@ -101,6 +106,7 @@ class Workload:
     def visualize(self, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
         Visualize computation graph of this workload.
+
         :param path: Path to save graph visualization.
         :param font_name: Name of the font used to display node texts.
         :param attrs: Other attributes for GraphViz to plot the nodes.
