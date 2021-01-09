@@ -35,17 +35,35 @@ class Substitution:
                 'Numbers of source and target patterns do not match.'
             )
 
-        # Check source and target
-        visited: Dict[Node, Any] = {}
+        # Check source patterns
+        src_nodes: Set[Node] = set()
         for src in src_pats:
+            # Check if output nodes have no successors
             if len(src.succ) != 0:
                 raise ValueError('Source output node cannot have successors.')
-            _SrcPatChecker(visited).visit(src)
-        visited.clear()
+
+            # Check pattern graph
+            src_checker = _SrcPatChecker(src_nodes)
+            src_checker.visit(src)
+
+            # Check if it is connected to the whole subgraph
+            cur_visited = set(src_checker.visited.keys())
+            shared = src_nodes.intersection(cur_visited)
+            if len(src_nodes) != 0 and len(shared) == 0:
+                raise ValueError(
+                    'Source pattern graph contains more than one connected component.'
+                )
+
+            # Update source node set
+            src_nodes.update(cur_visited)
+
+        # Check target patterns
+        tgt_checker = _TgtPatChecker(src_nodes)
         for tgt in tgt_pats:
+            # Check if output nodes have no successors
             if len(tgt.succ) != 0:
                 raise ValueError('Target output node cannot have successors.')
-            _TgtPatChecker(visited).visit(tgt)
+            tgt_checker.visit(tgt)
 
         # Store source and target patterns
         self.src_pats = src_pats
@@ -89,12 +107,16 @@ class Substitution:
 
 
 class _SrcPatChecker(NodeVisitor):
-    def __init__(self, visited: Dict[Node, Any]):
+    def __init__(self, prev_visited: Set[Node]):
         super().__init__()
-        self.visited = visited
+        self.prev_visited = prev_visited
+        self.attr_checker = _SrcAttrChecker(self)
+
+    def has_visited(self, node: Node):
+        return self.visited.__contains__(node) or self.prev_visited.__contains__(node)
 
     def visit(self, node: Node):
-        if (not self.visited.__contains__(node)) and node.is_used:
+        if (not self.has_visited(node)) and node.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
             )
@@ -107,22 +129,30 @@ class _SrcPatChecker(NodeVisitor):
                 'Constant node in source graph cannot store an attribute expression.'
             )
 
+    def visit_call(self, call: Call) -> Any:
+        super().visit_call(call)
+
+        # Check if all attribute expressions only contain reference to visited nodes
+        for a in call.attrs.values():
+            self.attr_checker.visit(a)
+
 
 class _SrcAttrChecker(AttrVisitor):
-    def __init__(self, visited: Dict[Node, Any]):
-        self.visited = visited
+    def __init__(self, pat_checker: _SrcPatChecker):
+        self.checker = pat_checker
 
     def visit_get_attr(self, get_attr: GetAttr):
-        if not get_attr.node.in_src:
+        if not self.checker.has_visited(get_attr.node):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
 
 
 class _TgtPatChecker(NodeVisitor):
-    def __init__(self, visited: Dict[Node, Any]):
+    def __init__(self, src_nodes: Set[Node]):
         super().__init__()
-        self.visited = visited
+        self.src_nodes = src_nodes
+        self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
     def visit(self, node: Node):
         if (not self.visited.__contains__(node)) and node.in_tgt:
@@ -132,13 +162,13 @@ class _TgtPatChecker(NodeVisitor):
         node.in_tgt = True
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        if not wildcard.in_src:
+        if not self.src_nodes.__contains__(wildcard):
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
     def visit_var(self, var: Var) -> Any:
-        if not var.in_src:
+        if not self.src_nodes.__contains__(var):
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
@@ -167,12 +197,15 @@ class _TgtPatChecker(NodeVisitor):
 
         # Check if all attribute expressions only contain reference to nodes in source graph
         for a in call.attrs.values():
-            _TgtAttrChecker().visit(a)
+            self.attr_checker.visit(a)
 
 
 class _TgtAttrChecker(AttrVisitor):
+    def __init__(self, src_nodes: Set[Node]):
+        self.src_nodes = src_nodes
+
     def visit_get_attr(self, get_attr: GetAttr):
-        if not get_attr.node.in_src:
+        if not self.src_nodes.__contains__(get_attr.node):
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )
