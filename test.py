@@ -57,6 +57,27 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_merge_relu(self):
+        print('Merge ReLU')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        relu1 = relay.nn.relu(x)
+        w1 = relay.var('w1', shape=(2, 2, 3, 3))
+        conv1 = relay.nn.conv2d(relu1, w1, padding=(1, 1, 1, 1))
+        relu2 = relay.nn.relu(x)
+        w2 = relay.var('w2', shape=(2, 2, 3, 3))
+        conv2 = relay.nn.conv2d(relu2, w2, padding=(1, 1, 1, 1))
+        y = conv1 + conv2
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.merge_relu()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_parallel_conv(self):
         print('Parallel Conv')
 
@@ -143,8 +164,12 @@ class ModelTest(unittest.TestCase):
         # wl.visualize()
 
         # Apply substitution
+        subst = rule.merge_relu()
+        wl = subst(wl, fast_mode=True, new_name=wl.name + '_relu')
         subst = rule.conv_batch_norm()
-        wl = subst(wl, fast_mode=True, new_name=wl.name + '_subst')
+        wl = subst(wl, fast_mode=True, new_name=wl.name + '_conv_bn')
+        subst = rule.bias_add_add()
+        wl = subst(wl, fast_mode=True, new_name=wl.name + '_bias_add')
         wl.visualize()
         self.assertTrue(True)
 
@@ -154,8 +179,9 @@ if __name__ == '__main__':
         # RuleTest('test_trans_trans'),
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_split_concat'),
+        # RuleTest('test_merge_relu'),
         # RuleTest('test_parallel_conv'),
-        RuleTest('test_parallel_conv_expand_kernels'),
+        # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_conv_batch_norm'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),

@@ -50,6 +50,21 @@ def split_concat():
     return Substitution(y1, y2)
 
 
+def merge_relu():
+    # Input
+    x = Wildcard()
+
+    # Source pattern
+    relu_1 = Call('nn.relu', x)
+    relu_2 = Call('nn.relu', x)
+
+    # Target pattern
+    relu = Call('nn.relu', x)
+
+    # Build substitution
+    return Substitution([relu_1, relu_2], [relu, relu])
+
+
 def parallel_conv():
     # Input
     x = Wildcard()

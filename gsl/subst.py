@@ -344,28 +344,35 @@ class _ExprRewriter:
                 add_succ(p, e)
 
             # Backtrack until the source pattern is reached
+            found = False
             while len(queue) > 0:
                 # Pick one pair from queue
-                p, e = queue.pop()
+                p, e = queue.popleft()
 
-                # Try matching if the source pattern is reached
-                if p is src_pat:
-                    # Do not match if the expression is matched before
-                    if src_matched.__contains__(e) or self.history.__contains__(e):
-                        continue
+                # Add successors to queue if source pattern is not reached
+                if p is not src_pat:
+                    add_succ(p, e)
+                    continue
 
-                    # Match pattern with expression
-                    matcher = _ExprMatcher(pat_to_expr.copy())
-                    res = matcher.match(src_pat, e)
-                    if res:
-                        pat_to_expr.update(matcher.pat_to_expr)
-                        src_matched.append(e)
-                        break
-                    else:
-                        continue
+                # Do not match if the expression is matched before
+                if src_matched.__contains__(e) or self.history.__contains__(e):
+                    continue
 
-                # Add successors to queue
-                add_succ(p, e)
+                # Match pattern with expression
+                matcher = _ExprMatcher(pat_to_expr.copy())
+                res = matcher.match(src_pat, e)
+                if not res:
+                    continue
+
+                # Update matched nodes and expressions
+                pat_to_expr.update(matcher.pat_to_expr)
+                src_matched.append(e)
+                found = True
+                break
+
+            # No match for this pattern, the whole match failed
+            if not found:
+                return []
 
         return src_matched
 
