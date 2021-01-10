@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, List
 
-from tvm import ir, tir
+from tvm import ir, tir, relay
 
 default_font_name = ''
 
@@ -22,6 +22,17 @@ def cvt_ir_value(val) -> Any:
         return [cvt_ir_value(e) for e in val]
     else:
         return val
+
+
+def get_expr_pred(expr: relay.Expr) -> List[relay.Expr]:
+    if isinstance(expr, relay.Call):
+        return list(expr.args)
+    elif isinstance(expr, relay.Tuple):
+        return list(expr.fields)
+    elif isinstance(expr, relay.TupleGetItem):
+        return [expr.tuple_value]
+    else:
+        return []
 
 
 _set_default_font_name()
