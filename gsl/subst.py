@@ -37,8 +37,9 @@ class Substitution:
 
         # Check source patterns
         src_nodes: Set[Node] = set()
-        for src in src_pats:
+        for i in range(len(src_pats)):
             # Check if output nodes have no successors
+            src = src_pats[i]
             if len(src.succ) != 0:
                 raise ValueError('Source output node cannot have successors.')
 
@@ -51,7 +52,7 @@ class Substitution:
             shared = src_nodes.intersection(cur_visited)
             if len(src_nodes) != 0 and len(shared) == 0:
                 raise ValueError(
-                    'Source pattern graph contains more than one connected component.'
+                    'Source pattern {} is not connected to union of previous ones.'.format(i)
                 )
 
             # Update source node set
@@ -60,9 +61,6 @@ class Substitution:
         # Check target patterns
         tgt_checker = _TgtPatChecker(src_nodes)
         for tgt in tgt_pats:
-            # Check if output nodes have no successors
-            if len(tgt.succ) != 0:
-                raise ValueError('Target output node cannot have successors.')
             tgt_checker.visit(tgt)
 
         # Store source and target patterns
@@ -155,10 +153,12 @@ class _TgtPatChecker(NodeVisitor):
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
     def visit(self, node: Node):
-        if (not self.visited.__contains__(node)) and node.in_tgt:
+        if not (self.visited.__contains__(node) or self.src_nodes.__contains__(node)) \
+                and node.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
+        super().visit(node)
         node.in_tgt = True
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
