@@ -329,6 +329,7 @@ class _ExprRewriter:
             # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
             # there must exist some node that satisfies the condition.
             queue: Deque[ty.Tuple[Node, relay.Expr]] = deque()
+            visited: Set[ty.Tuple[Node, relay.Expr]] = set()
 
             def add_succ(pat: Node, expr: relay.Expr):
                 if succ_map[expr] is None:
@@ -337,8 +338,13 @@ class _ExprRewriter:
                     if pat_to_expr.__contains__(ps) or (not ps.in_src):
                         continue
                     for es in succ_map[expr]:
-                        if not expr_matched.__contains__(es):
-                            queue.append((ps, es))
+                        if expr_matched.__contains__(es):
+                            continue  # matched expression cannot be matched again
+                        pair = (ps, es)
+                        if visited.__contains__(pair):
+                            continue  # visited pattern-expression pair should be skipped
+                        queue.append(pair)
+                        visited.add(pair)
 
             for p, e in pat_to_expr.items():
                 add_succ(p, e)

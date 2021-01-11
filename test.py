@@ -242,7 +242,6 @@ class ModelTest(unittest.TestCase):
         import model
         net = model.nasnet.get_model(1)
         wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
-        print(wl.mod)
         # wl.visualize()
 
         # Apply substitution
