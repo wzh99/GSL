@@ -1,7 +1,7 @@
 import typing as ty
 from collections import deque
 from inspect import signature, Parameter
-from typing import Optional, Set, Deque
+from typing import Optional, Set
 
 from tvm import ir, transform
 
@@ -320,7 +320,7 @@ class _ExprRewriter:
     def _match_rest(self, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
                     fst_matched: relay.Expr, succ_map: Dict[relay.Expr, List[relay.Expr]]) \
             -> List[relay.Expr]:
-        src_matched = [fst_matched]
+        output_matched = [fst_matched]
         for src_pat in src_pats[1:]:
             # Collect matched expression nodes
             expr_matched = set(pat_to_expr.values())
@@ -328,8 +328,7 @@ class _ExprRewriter:
             # Find candidate node-expression pair where the node is connected to matched ones.
             # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
             # there must exist some node that satisfies the condition.
-            queue: Deque[ty.Tuple[Node, relay.Expr]] = deque()
-            visited: Set[ty.Tuple[Node, relay.Expr]] = set()
+            stack: List[ty.Tuple[Node, relay.Expr]] = []
 
             def add_succ(pat: Node, expr: relay.Expr):
                 if succ_map[expr] is None:
@@ -340,28 +339,28 @@ class _ExprRewriter:
                     for es in succ_map[expr]:
                         if expr_matched.__contains__(es):
                             continue  # matched expression cannot be matched again
-                        pair = (ps, es)
-                        if visited.__contains__(pair):
-                            continue  # visited pattern-expression pair should be skipped
-                        queue.append(pair)
-                        visited.add(pair)
+                        stack.append((ps, es))
+                        if not isinstance(pat, (Wildcard, Var)):
+                            # for non-inputs, only the first successor expression node could match
+                            break
+                    break  # only need to visit first unmatched successor pattern node
 
             for p, e in pat_to_expr.items():
                 add_succ(p, e)
 
             # Backtrack until the source pattern is reached
             found = False
-            while len(queue) > 0:
+            while len(stack) > 0:
                 # Pick one pair from queue
-                p, e = queue.popleft()
+                p, e = stack.pop()
 
-                # Add successors to queue if source pattern is not reached
+                # Add successors to queue if output pattern is not reached
                 if p is not src_pat:
                     add_succ(p, e)
                     continue
 
                 # Do not match if the expression is matched before
-                if src_matched.__contains__(e) or self.history.__contains__(e):
+                if output_matched.__contains__(e) or self.history.__contains__(e):
                     continue
 
                 # Match pattern with expression
@@ -372,7 +371,7 @@ class _ExprRewriter:
 
                 # Update matched nodes and expressions
                 pat_to_expr.update(matcher.pat_to_expr)
-                src_matched.append(e)
+                output_matched.append(e)
                 found = True
                 break
 
@@ -380,7 +379,7 @@ class _ExprRewriter:
             if not found:
                 return []
 
-        return src_matched
+        return output_matched
 
     @classmethod
     def _check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
