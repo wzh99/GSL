@@ -565,12 +565,12 @@ class _ExprMatcher:
         self.expr_matched = set(pat_to_expr.values())
 
     def match(self, pat: Node, expr: relay.Expr) -> bool:
-        # Reject if the expression has been matched with another node
-        if (not self.pat_to_expr.__contains__(pat)) and self.expr_matched.__contains__(expr):
-            return False
+        # Already matched, use history record
+        if self.pat_to_expr.__contains__(pat):
+            return self.pat_to_expr[pat] == expr
 
-        # Reject if the node has been matched, but the expression is different
-        if self.pat_to_expr.__contains__(pat) and (self.pat_to_expr[pat] != expr):
+        # Reject if the expression has been matched with another node
+        if self.expr_matched.__contains__(expr):
             return False
 
         # Try matching according to pattern node type
@@ -588,8 +588,11 @@ class _ExprMatcher:
             res = self.match_getitem(pat, expr)
         else:
             res = False
+
+        # Add to record if matched
         if res:
             self.pat_to_expr[pat] = expr
+            self.expr_matched.add(expr)
         return res
 
     def match_var(self, var: Var, expr: relay.Expr) -> bool:

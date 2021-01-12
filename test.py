@@ -227,7 +227,6 @@ class ModelTest(unittest.TestCase):
         import model
         net = model.resnet.get_model(3)
         wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
-        # wl.visualize()
 
         # Apply substitution
         subst = rule.conv_batch_norm()
@@ -242,7 +241,6 @@ class ModelTest(unittest.TestCase):
         import model
         net = model.nasnet.get_model(1)
         wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
-        # wl.visualize()
 
         # Apply substitution
         subst = rule.merge_relu()
@@ -251,6 +249,8 @@ class ModelTest(unittest.TestCase):
         wl = subst(wl, fast_mode=True, new_name=wl.name + '_conv_bn')
         subst = rule.bias_add_add()
         wl = subst(wl, fast_mode=True, new_name=wl.name + '_bias_add')
+        # subst = rule.parallel_conv_expand_kernels()
+        # wl = subst(wl, fast_mode=True, new_name=wl.name + '_parallel_conv')
         wl.visualize()
         self.assertTrue(True)
 
