@@ -355,7 +355,7 @@ class _ExprRewriter:
                 p, e = stack.pop()
 
                 # Add successors to queue if output pattern is not reached
-                if p is not src_pat:
+                if p != src_pat:
                     add_succ(p, e)
                     continue
 
@@ -562,10 +562,18 @@ class _SinglePatRewriter(relay.ExprMutator):
 class _ExprMatcher:
     def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
         self.pat_to_expr = pat_to_expr
+        self.expr_matched = set(pat_to_expr.values())
 
     def match(self, pat: Node, expr: relay.Expr) -> bool:
-        if self.pat_to_expr.__contains__(pat) and self.pat_to_expr[pat] != expr:
+        # Reject if the expression has been matched with another node
+        if (not self.pat_to_expr.__contains__(pat)) and self.expr_matched.__contains__(expr):
             return False
+
+        # Reject if the node has been matched, but the expression is different
+        if self.pat_to_expr.__contains__(pat) and (self.pat_to_expr[pat] != expr):
+            return False
+
+        # Try matching according to pattern node type
         if isinstance(pat, Wildcard):
             res = True
         elif isinstance(pat, Var):

@@ -96,11 +96,14 @@ class Workload:
 
     def __call__(self, **inputs) -> np.ndarray:
         """
-        Execute workload with given inputs
+        Execute workload with given inputs.
+        Note that the workload can only be called after it is built.
 
         :param inputs: Input tensors of workload.
         :return: Computation result in numpy array.
         """
+        if self.func is None:
+            raise RuntimeError('The workload has not been built yet.')
         return self.func(**inputs, **self.params).asnumpy()
 
     def visualize(self, path: str = 'out', font_name: str = default_font_name, **attrs):
