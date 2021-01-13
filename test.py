@@ -1,9 +1,39 @@
 import unittest
 
-from tvm import relay
-
 import rule
-from gsl import Workload
+from gsl import Workload, Substitution
+from gsl.graph import *
+
+
+class MatchTest(unittest.TestCase):
+    def test_pyramid(self):
+        print('Match Pyramid')
+
+        # Pattern
+        x = Wildcard()
+        l1_op1 = Call('exp', x)
+        l1_op2 = Call('abs', x)
+        l2_op1 = Call('sqrt', l1_op1)
+        l2_op2 = Call('add', l1_op1, l1_op2)
+        l2_op3 = Call('negative', l1_op2)
+        subst = Substitution([l2_op1, l2_op2, l2_op3], [x, x, x])
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        l1_op1 = relay.exp(x)
+        l1_op2 = relay.abs(x)
+        l2_op1 = relay.sqrt(l1_op1)
+        l2_op2 = l1_op1 + l1_op2
+        l2_op3 = -l1_op2
+        y = relay.concatenate([l2_op1, l2_op2, l2_op3], axis=1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        wl = subst(wl)
+        print(wl.mod)
+
+        self.assertTrue(True)
 
 
 class RuleTest(unittest.TestCase):
@@ -257,6 +287,7 @@ class ModelTest(unittest.TestCase):
 
 if __name__ == '__main__':
     suite = unittest.TestSuite(tests=[
+        # MatchTest('test_pyramid'),
         # RuleTest('test_trans_trans'),
         # RuleTest('test_split_concat'),
         # RuleTest('test_bias_add_add'),

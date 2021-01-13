@@ -44,7 +44,7 @@ class Substitution:
                 raise ValueError('Source output node cannot have successors.')
 
             # Check pattern graph
-            src_checker = _SrcPatChecker(src_nodes)
+            src_checker = _SrcPatChecker(src_nodes, i)
             src_checker.visit(src)
 
             # Check if it is connected to the whole subgraph
@@ -105,9 +105,10 @@ class Substitution:
 
 
 class _SrcPatChecker(NodeVisitor):
-    def __init__(self, prev_visited: Set[Node]):
+    def __init__(self, prev_visited: Set[Node], idx: int):
         super().__init__()
         self.prev_visited = prev_visited
+        self.idx = idx
         self.attr_checker = _SrcAttrChecker(self)
 
     def has_visited(self, node: Node):
@@ -119,7 +120,7 @@ class _SrcPatChecker(NodeVisitor):
                 'Node in source pattern has been used in other substitutions.'
             )
         super().visit(node)
-        node.in_src = True
+        node.src_idx = self.idx
 
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, AttrExpr):
@@ -317,7 +318,14 @@ class _ExprRewriter:
     def match_rest(self, pat_to_expr: Dict[Node, relay.Expr], fst_matched: relay.Expr,
                    succ_map: Dict[relay.Expr, List[relay.Expr]]) -> List[relay.Expr]:
         output_matched = [fst_matched]
-        for src_pat in self.src_pats[1:]:
+        for src_idx in range(len(self.src_pats)):
+            # The first pattern is already matched
+            if src_idx == 0:
+                continue
+
+            # Get output pattern node
+            src_pat = self.src_pats[src_idx]
+
             # Collect matched expression nodes
             expr_matched = set(pat_to_expr.values())
 
@@ -330,10 +338,10 @@ class _ExprRewriter:
                 if succ_map[expr] is None:
                     return
                 for ps in pat.succ:
-                    if pat_to_expr.__contains__(ps) or (not ps.in_src):
+                    if pat_to_expr.__contains__(ps) or ps.src_idx != src_idx:
                         continue
                     for es in succ_map[expr]:
-                        if expr_matched.__contains__(es):
+                        if expr_matched.__contains__(es) or self.history.__contains__(es):
                             continue  # matched expression cannot be matched again
                         stack.append((ps, es))
                         if not isinstance(pat, (Wildcard, Var)):
@@ -353,10 +361,6 @@ class _ExprRewriter:
                 # Add successors to queue if output pattern is not reached
                 if p != src_pat:
                     add_succ(p, e)
-                    continue
-
-                # Do not match if the expression is matched before
-                if output_matched.__contains__(e) or self.history.__contains__(e):
                     continue
 
                 # Match pattern with expression
@@ -391,7 +395,7 @@ class _ExprRewriter:
                 continue
 
             # Skip output nodes because they can be always be used by their successors
-            if len(p.succ) == 0:
+            if p.is_output:
                 continue
 
             # From our matching algorithm, unmatched successor expression nodes could only be last

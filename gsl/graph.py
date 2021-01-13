@@ -16,12 +16,20 @@ class Node:
 
     def __init__(self):
         self.succ: List[Node] = []
-        self.in_src = False
+        self.src_idx = -1
         self.in_tgt = False
 
     @property
     def pred(self):
         return []
+
+    @property
+    def is_output(self) -> bool:
+        return len(self.succ) == 0
+
+    @property
+    def in_src(self):
+        return self.src_idx != -1
 
     @property
     def is_used(self):
