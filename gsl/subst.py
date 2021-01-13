@@ -1,5 +1,4 @@
 import typing as ty
-from collections import deque
 from inspect import signature, Parameter
 from typing import Optional, Set
 
@@ -74,8 +73,8 @@ class Substitution:
         Apply substitution to workload.
 
         :param wl: Workload whose graph is to be altered.
-        :param fast_mode: Whether to apply substitution as fast as possible. Some checks to
-            ensure safety of substitution will be skipped.
+        :param fast_mode: Whether to use fast substitution algorithm for single output pattern.
+        In this mode, unmatched successors of interior nodes will not be checked.
         :param fold_param: Whether to pre-compute nodes whose operands are already available.
         :return: New workload after applying the substitution.
         """
@@ -225,28 +224,28 @@ class _SubstFuncPass:
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
+SuccListDict = Dict[relay.Expr, List[relay.Expr]]
+
+
 class _ExprRewriter:
-    def __init__(self, src_pats: List[Node], tgt_pats: List[Node], fast_mode: bool = False):
+    def __init__(self, src_pats: List[Node], tgt_pats: List[Node], fast_mode: bool):
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
         self.fast_mode = fast_mode
         self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
-        # Apply substitution in one visit in certain settings
         if self.fast_mode and len(self.src_pats) == 1:
             return _SinglePatRewriter(self).visit(expr)
 
         # Greedily match all subgraphs
         while True:
-            # Find all successors of graph nodes concerned
-            succ_visitor = _SuccMapper()
-            succ_visitor.visit(expr)
-            succ_map = succ_visitor.succ_map
+            # Build successor list for all expression nodes
+            succ_list = self.build_succ_list(expr)
 
             # Find matched expressions with patterns
             pat_to_expr: Dict[Node, relay.Expr] = dict()
-            src_matched = self._find_match(self.src_pats, expr, pat_to_expr, succ_map)
+            src_matched = self.find_match(expr, pat_to_expr, succ_list)
             if len(src_matched) == 0:  # even a single match is not found
                 return expr
 
@@ -254,9 +253,8 @@ class _ExprRewriter:
             self.history.update(src_matched)
 
             # Check whether this subgraph has outgoing edges not described by source patterns
-            if not self.fast_mode:
-                if not self._check_succ(self.src_pats, pat_to_expr, succ_map):
-                    continue
+            if not self.check_succ(pat_to_expr, succ_list):
+                continue
 
             # Generate target expressions and map source to them
             tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt) for tgt in self.tgt_pats]
@@ -265,9 +263,8 @@ class _ExprRewriter:
             # Rewrite expression
             expr = _RewriteMutator(expr_map).visit(expr)
 
-    def _find_match(self, src_pats: List[Node], expr: relay.Expr,
-                    pat_to_expr: Dict[Node, relay.Expr],
-                    succ_map: Dict[relay.Expr, List[relay.Expr]]) -> List[relay.Expr]:
+    def find_match(self, expr: relay.Expr, pat_to_expr: Dict[Node, relay.Expr],
+                   succ_list: SuccListDict) -> List[relay.Expr]:
         # Traverse the expression graph
         class StackElem:
             def __init__(self, e: relay.Expr, count: int):
@@ -300,16 +297,16 @@ class _ExprRewriter:
 
                 # Use first pattern to roughly locate the subgraph
                 matcher = _ExprMatcher(pat_to_expr.copy())
-                res = matcher.match(src_pats[0], cur_expr)
+                res = matcher.match(self.src_pats[0], cur_expr)
                 if not res:
                     continue  # even first pattern is not matched, skip this expression
-                if len(src_pats) == 1:
+                if len(self.src_pats) == 1:
                     pat_to_expr.update(matcher.pat_to_expr)
                     return [cur_expr]  # work is done for single pattern
 
                 # Match rest of the patterns
                 tmp_pat_to_expr = matcher.pat_to_expr
-                src_matched = self._match_rest(src_pats, tmp_pat_to_expr, cur_expr, succ_map)
+                src_matched = self.match_rest(tmp_pat_to_expr, cur_expr, succ_list)
                 if len(src_matched) == 0:
                     continue  # the rest patterns do not match, skip this expression
                 pat_to_expr.update(tmp_pat_to_expr)
@@ -317,11 +314,10 @@ class _ExprRewriter:
 
         return []
 
-    def _match_rest(self, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
-                    fst_matched: relay.Expr, succ_map: Dict[relay.Expr, List[relay.Expr]]) \
-            -> List[relay.Expr]:
+    def match_rest(self, pat_to_expr: Dict[Node, relay.Expr], fst_matched: relay.Expr,
+                   succ_map: Dict[relay.Expr, List[relay.Expr]]) -> List[relay.Expr]:
         output_matched = [fst_matched]
-        for src_pat in src_pats[1:]:
+        for src_pat in self.src_pats[1:]:
             # Collect matched expression nodes
             expr_matched = set(pat_to_expr.values())
 
@@ -381,49 +377,36 @@ class _ExprRewriter:
 
         return output_matched
 
-    @classmethod
-    def _check_succ(cls, src_pats: List[Node], pat_to_expr: Dict[Node, relay.Expr],
-                    expr_succ: Dict[relay.Expr, List[relay.Expr]]) -> bool:
-        # Create set of matched expressions
-        matched_expr = set(pat_to_expr.values())
+    @staticmethod
+    def build_succ_list(expr: relay.Expr) -> SuccListDict:
+        succ_visitor = _SuccListBuilder()
+        succ_visitor.visit(expr)
+        return succ_visitor.succ_list
 
-        # Initialize queue for pattern nodes
-        queue = deque(src_pats)
-        visited: Set[Node] = set(src_pats)
-
-        def update(n: Node):
-            if not visited.__contains__(n):
-                queue.append(n)
-                visited.add(n)
-
-        # Traverse pattern graph
-        while len(queue) > 0:
-            # Pop a node and add its predecessors to queue
-            node = queue.popleft()
-            for p in node.pred:
-                update(p)
-
-            # Skip if the node is output
-            if len(node.succ) == 0:
+    @staticmethod
+    def check_succ(pat_to_expr: Dict[Node, relay.Expr], succ_list: SuccListDict) -> bool:
+        for p, e in pat_to_expr.items():
+            # Skip wildcard and variables because they serve as input nodes
+            if isinstance(p, (Wildcard, Var)):
                 continue
 
-            # Skip if the node is a variable, a constant or wildcard
-            # These three kinds of nodes will still be available after substitution
-            if isinstance(node, (Wildcard, Var, Const)):
+            # Skip output nodes because they can be always be used by their successors
+            if len(p.succ) == 0:
                 continue
 
-            # Check if matched expression has outgoing edges not described by pattern
-            for o in expr_succ[pat_to_expr[node]]:
-                if not matched_expr.__contains__(o):
-                    return False
+            # From our matching algorithm, unmatched successor expression nodes could only be last
+            # several elements of the expression's successor list. We just need to ensure the
+            # pattern and expression node has same number of successors.
+            if len(p.succ) != len(succ_list[e]):
+                return False
 
         return True
 
 
-class _SuccMapper(relay.ExprVisitor):
+class _SuccListBuilder(relay.ExprVisitor):
     def __init__(self):
         super().__init__()
-        self.succ_map: Dict[relay.Expr, List[relay.Expr]] = dict()
+        self.succ_list: Dict[relay.Expr, List[relay.Expr]] = dict()
 
     def visit_call(self, call: relay.Call):
         super().visit_call(call)
@@ -440,10 +423,10 @@ class _SuccMapper(relay.ExprVisitor):
         self._add_succ(t.tuple_value, t)
 
     def _add_succ(self, pred: relay.Expr, succ: relay.Expr):
-        if self.succ_map.__contains__(pred):
-            self.succ_map[pred].append(succ)
+        if self.succ_list.__contains__(pred):
+            self.succ_list[pred].append(succ)
         else:
-            self.succ_map[pred] = [succ]
+            self.succ_list[pred] = [succ]
 
 
 class _RelayBuilder(NodeVisitor):
@@ -534,7 +517,6 @@ class _RewriteMutator(relay.ExprMutator):
 class _SinglePatRewriter(relay.ExprMutator):
     def __init__(self, rewriter: _ExprRewriter):
         super().__init__()
-        self.rewriter = rewriter
         self.src_pat = rewriter.src_pats[0]
         self.tgt_pat = rewriter.tgt_pats[0]
 

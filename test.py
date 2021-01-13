@@ -230,7 +230,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         subst = rule.conv_batch_norm()
-        wl = subst(wl, fast_mode=True, new_name=wl.name + '_subst')
+        wl = subst(wl, new_name=wl.name + '_subst')
         wl.visualize()
         self.assertTrue(True)
 
@@ -244,13 +244,13 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         subst = rule.merge_relu()
-        wl = subst(wl, fast_mode=True, new_name=wl.name + '_relu')
+        wl = subst(wl, new_name=wl.name + '_relu')
         subst = rule.conv_batch_norm()
         wl = subst(wl, fast_mode=True, new_name=wl.name + '_conv_bn')
         subst = rule.bias_add_add()
         wl = subst(wl, fast_mode=True, new_name=wl.name + '_bias_add')
         # subst = rule.parallel_conv_expand_kernels()
-        # wl = subst(wl, fast_mode=True, new_name=wl.name + '_parallel_conv')
+        # wl = subst(wl, new_name=wl.name + '_parallel_conv')
         wl.visualize()
         self.assertTrue(True)
 
