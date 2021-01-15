@@ -35,6 +35,23 @@ class Node:
     def is_used(self):
         return self.in_src or self.in_tgt
 
+    # Ad-hoc attributes
+    shared_attrs = {'shape', 'dtype'}
+
+    def __getattr__(self, name: str):
+        if not self.shared_attrs.__contains__(name):
+            raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
+        return GetAttr(self, name)
+
+    @staticmethod
+    def get_expr_attr(expr: relay.Expr, name: str):
+        if name == 'shape':
+            return expr.checked_type.concrete_shape
+        elif name == 'dtype':
+            return expr.checked_type.dtype
+        else:
+            raise RuntimeError('Unreachable.')
+
     def __getitem__(self, index: int):
         return GetItem(self, index)
 
@@ -92,8 +109,6 @@ class Var(Node):
     A variable node matches input tensor of the model. Target graph cannot contain variable nodes
     not defined in source graph.
     """
-    # Ad-hoc attributes
-    avail_attrs = {'shape', 'dtype'}
 
     def __init__(self, **raw_attrs):
         super().__init__()
@@ -101,25 +116,11 @@ class Var(Node):
         # Check attributes for variable
         self.attrs: Dict[str, AttrExpr] = {}
         for name, attr in raw_attrs.items():
-            if not self.avail_attrs.__contains__(name):
+            if not self.shared_attrs.__contains__(name):
                 raise AttributeError(
                     'Attribute \'{}\' not found in variable node'.format(name)
                 )
             self.attrs[name] = to_attr(attr)
-
-    def __getattr__(self, name: str):
-        if not Var.avail_attrs.__contains__(name):
-            raise AttributeError('Attribute \'{}\' not found in variable node.'.format(name))
-        return GetAttr(self, name)
-
-    @staticmethod
-    def get_expr_attr(var: relay.Var, name: str):
-        if name == 'shape':
-            return var.type_annotation.concrete_shape
-        elif name == 'dtype':
-            return var.type_annotation.dtype
-        else:
-            raise RuntimeError('Invalid attribute name.')
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
@@ -207,7 +208,11 @@ class Call(Node):
         return self.args
 
     def __getattr__(self, name: str):
-        # Check if attribute name is valid
+        # Check shared attributes first
+        if self.shared_attrs.__contains__(name):
+            return super().__getattr__(name)
+
+        # Validate attribute name for current op
         func = op.get_func(self.op)
         attr_names = op.get_attr_names(func)
         if not attr_names.__contains__(name):
@@ -352,13 +357,12 @@ class AttrEvaluator(AttrVisitor):
         expr = self.pat_to_expr[node]
 
         # Access attribute according to type of node
-        if isinstance(node, Call):
+        if Node.shared_attrs.__contains__(name):
+            return Node.get_expr_attr(expr, name)
+        elif isinstance(node, Call):
             return expr.attrs[name]
-        elif isinstance(node, Var):
-            assert isinstance(expr, relay.Var)
-            return Var.get_expr_attr(expr, name)
         else:
-            raise RuntimeError('Impossible case.')
+            raise RuntimeError('Unreachable.')
 
     def visit_list(self, list_attr: ListAttr):
         return [self.visit(f) for f in list_attr.fields]
