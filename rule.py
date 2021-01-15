@@ -1,5 +1,4 @@
-from gsl.graph import *
-from gsl.subst import Substitution
+from gsl import *
 
 
 def trans_trans():

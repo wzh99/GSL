@@ -47,7 +47,7 @@ def get_func(name: str) -> FunctionType:
 def get_attr_names(func: FunctionType) -> List[str]:
     if not num_inputs.__contains__(func):
         raise ValueError(
-            'Specification of function \'{}\' is not found.'.format(func.__name__)
+            'Specification of Relay API \'{}\' is not found.'.format(func.__name__)
         )
     num_input = num_inputs[func]
     return list(signature(func).parameters.keys())[num_input:]
