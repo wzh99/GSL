@@ -2,7 +2,7 @@ import typing as ty
 from inspect import signature, Parameter
 from typing import Optional, Set
 
-from tvm import ir, transform
+from tvm import transform
 
 from . import util
 from .fold import ParamFoldPass
@@ -185,8 +185,8 @@ class _TgtPatChecker(NodeVisitor):
         super().visit_call(call)
 
         # Check if all non-default attributes are provided
-        func = op.get_func(call.op)
-        num_input = op.num_inputs[func]
+        func = spec.get_func(call.op)
+        num_input = spec.num_inputs[func]
         required = set()
         for name, param in list(signature(func).parameters.items())[num_input:]:
             if param.default == Parameter.empty:
@@ -459,7 +459,7 @@ class _RelayBuilder(NodeVisitor):
         args = [self.visit(a) for a in call.args]
         attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr))
                       for name, attr in call.attrs.items()])
-        func = op.get_func(call.op)
+        func = spec.get_func(call.op)
         return func(*args, **attrs)
 
     def visit_tuple(self, tup: Tuple) -> Any:
@@ -588,7 +588,7 @@ class _ExprMatcher:
 
         # Match attributes
         for name, attr in var.attrs.items():
-            if not self._match_attr(attr, Var.get_expr_attr(expr, name)):
+            if not self._match_attr(attr, AttrEvaluator.get_expr_attr(expr, name)):
                 return False
 
         return True

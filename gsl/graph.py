@@ -2,9 +2,9 @@ from typing import Dict
 
 import numpy as np
 from graphviz import Digraph
-from tvm import relay
+from tvm import relay, ir
 
-from . import op
+from . import spec
 from .attr import *
 from .util import default_font_name
 
@@ -35,22 +35,13 @@ class Node:
     def is_used(self):
         return self.in_src or self.in_tgt
 
-    # Ad-hoc attributes
+    # Shared attributes
     shared_attrs = {'shape', 'dtype'}
 
     def __getattr__(self, name: str):
         if not self.shared_attrs.__contains__(name):
             raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
         return GetAttr(self, name)
-
-    @staticmethod
-    def get_expr_attr(expr: relay.Expr, name: str):
-        if name == 'shape':
-            return expr.checked_type.concrete_shape
-        elif name == 'dtype':
-            return expr.checked_type.dtype
-        else:
-            raise RuntimeError('Unreachable.')
 
     def __getitem__(self, index: int):
         return GetItem(self, index)
@@ -110,13 +101,15 @@ class Var(Node):
     not defined in source graph.
     """
 
+    avail_attrs = {'shape', 'dtype'}
+
     def __init__(self, **raw_attrs):
         super().__init__()
 
         # Check attributes for variable
         self.attrs: Dict[str, AttrExpr] = {}
         for name, attr in raw_attrs.items():
-            if not self.shared_attrs.__contains__(name):
+            if not self.avail_attrs.__contains__(name):
                 raise AttributeError(
                     'Attribute \'{}\' not found in variable node'.format(name)
                 )
@@ -181,8 +174,8 @@ class Call(Node):
         self.args = list(args)
 
         # Check number of inputs
-        func = op.get_func(op_name)
-        num_input = op.num_inputs[func]
+        func = spec.get_func(op_name)
+        num_input = spec.num_inputs[func]
         if num_input != len(args):
             raise ValueError(
                 'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
@@ -196,7 +189,7 @@ class Call(Node):
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
 
         # Check if specified attributes really exists in op
-        attr_names = op.get_attr_names(func)
+        attr_names = spec.get_attr_names(func)
         for name, val in self.attrs.items():
             if not attr_names.__contains__(name):
                 raise AttributeError(
@@ -213,8 +206,8 @@ class Call(Node):
             return super().__getattr__(name)
 
         # Validate attribute name for current op
-        func = op.get_func(self.op)
-        attr_names = op.get_attr_names(func)
+        func = spec.get_func(self.op)
+        attr_names = spec.get_attr_names(func)
         if not attr_names.__contains__(name):
             raise AttributeError(
                 'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
@@ -344,6 +337,20 @@ class AttrEvaluator(AttrVisitor):
     def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
         self.pat_to_expr = pat_to_expr
 
+    @staticmethod
+    def get_expr_attr(expr: relay.Expr, name: str):
+        ty = expr.checked_type
+        if not isinstance(ty, ir.TensorType):
+            raise ValueError(
+                'Cannot get attribute from an expression not of tensor type.'
+            )
+        if name == 'shape':
+            return ty.concrete_shape
+        elif name == 'dtype':
+            return ty.dtype
+        else:
+            raise RuntimeError('Unreachable.')
+
     def visit_any(self, a: AnyAttr):
         return None
 
@@ -358,7 +365,7 @@ class AttrEvaluator(AttrVisitor):
 
         # Access attribute according to type of node
         if Node.shared_attrs.__contains__(name):
-            return Node.get_expr_attr(expr, name)
+            return self.get_expr_attr(expr, name)
         elif isinstance(node, Call):
             return expr.attrs[name]
         else:
