@@ -148,7 +148,10 @@ class Const(Node):
             )
 
 
-def to_node(val: Union[Node, ConstValueType]) -> Node:
+NodeConvertible = Union[Node, ConstValueType]
+
+
+def to_node(val: NodeConvertible) -> Node:
     """
     Create a graph pattern node with given value
 
@@ -160,7 +163,7 @@ def to_node(val: Union[Node, ConstValueType]) -> Node:
     elif isinstance(val, Const.value_class):
         return Const(val)
     else:
-        raise TypeError('Cannot convert to graph pattern node.')
+        raise TypeError('Cannot convert to pattern graph node.')
 
 
 class Call(Node):
@@ -168,10 +171,10 @@ class Call(Node):
     Represents an operator call.
     """
 
-    def __init__(self, op_name: str, *args: Node, **raw_attr):
+    def __init__(self, op_name: str, *args: NodeConvertible, **raw_attr):
         super().__init__()
         self.op = op_name
-        self.args = list(args)
+        self.args = [to_node(a) for a in args]
 
         # Check number of inputs
         func = spec.get_func(op_name)
@@ -217,7 +220,7 @@ class Call(Node):
 
 
 class Tuple(Node):
-    def __init__(self, *raw_fields: Node):
+    def __init__(self, *raw_fields: NodeConvertible):
         super().__init__()
         self.fields = [to_node(f) for f in raw_fields]
         for f in raw_fields:

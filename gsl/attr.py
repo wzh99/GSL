@@ -2,13 +2,13 @@ from enum import Enum
 from typing import Union, List, Any
 
 AttrValueType = Union[bool, int, float, str]
-attr_value_class = (bool, int, float, str)
 
 
 class AttrExpr:
     """
     AST for attribute expression.
     """
+    value_class = (bool, int, float, str)
 
     def __getitem__(self, index: int):
         return GetItemAttr(self, index)
@@ -98,6 +98,9 @@ class GetItemAttr(AttrExpr):
         self.index = index
 
 
+AttrConvertible = Union[AttrExpr, AttrValueType, tuple, list, None]
+
+
 def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
     """
     Create an attribute expression with given value.
@@ -109,7 +112,7 @@ def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
         return AnyAttr()
     elif isinstance(val, AttrExpr):
         return val
-    elif isinstance(val, attr_value_class):
+    elif isinstance(val, AttrExpr.value_class):
         return ConstAttr(val)
     elif isinstance(val, list):
         return ListAttr(val)

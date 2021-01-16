@@ -31,11 +31,8 @@ num_inputs = {
     nn.conv2d: 2,
     nn.batch_norm: 5,
     nn.bias_add: 2,
-    nn.max_pool2d: 1,
     nn.relu: 1,
     nn.pad: 1,
-    nn.dense: 2,
-    nn.softmax: 1,
     nn.batch_matmul: 2,
 }
 
