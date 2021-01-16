@@ -113,8 +113,16 @@ _direct_mapped = {
 }
 
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
-    'expand_dims': lambda args, attrs: np.expand_dims(args[0], attrs['axis']),
-    'nn.pad': lambda args, attrs: np.pad(args[0], attrs['pad_width']),
+    'expand_dims':
+        lambda args, attrs: _expand_dims(args[0], attrs['axis'], attrs['num_newaxis']),
+    'nn.pad':
+        lambda args, attrs: np.pad(args[0], attrs['pad_width']),
     'nn.batch_matmul':
         lambda args, _: np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1))),
 }
+
+
+def _expand_dims(data: np.ndarray, axis: int, num_newaxis: int) -> np.ndarray:
+    for i in range(num_newaxis):
+        data = np.expand_dims(data, axis + i)
+    return data

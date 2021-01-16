@@ -126,6 +126,30 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_conv_batch_norm_sequential(self):
+        print('Conv-Mul')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        w = relay.var('w', shape=(2, 2, 3, 3))
+        gamma = relay.var('gamma', shape=(2,))
+        beta = relay.var('beta', shape=(2,))
+        moving_mean = relay.var('moving_mean', shape=(2,))
+        moving_var = relay.var('moving_var', shape=(2,))
+        conv = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))
+        y = relay.nn.batch_norm(conv, gamma, beta, moving_mean, moving_var)[0]
+        wl = Workload.from_expr(y, {'x'}, name='conv_bn')
+        print(wl.mod)
+
+        # Apply substitutions
+        for subst in [
+            rule.simplify_batch_norm(),
+            rule.conv_mul(),
+        ]:
+            wl = subst(wl, fast_mode=True)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_conv_batch_norm(self):
         print('Conv-BatchNorm')
 
@@ -206,7 +230,7 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
-    def test_sequential_subst(self):
+    def test_nasnet_block(self):
         print('Sequential Subst. on a Simplified NASNet Block')
 
         # Source graph
@@ -239,7 +263,8 @@ class RuleTest(unittest.TestCase):
         for subst in [
             rule.merge_relu(),
             rule.parallel_conv_expand_kernels(),
-            rule.conv_batch_norm(),
+            rule.simplify_batch_norm(),
+            rule.conv_mul(),
             rule.bias_add_add(),
             rule.two_conv_add(),
             rule.split_concat()
@@ -273,14 +298,14 @@ class ModelTest(unittest.TestCase):
         wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
 
         # Apply substitution
-        subst = rule.merge_relu()
-        wl = subst(wl, new_name=wl.name + '_relu')
-        subst = rule.conv_batch_norm()
-        wl = subst(wl, fast_mode=True, new_name=wl.name + '_conv_bn')
-        subst = rule.bias_add_add()
-        wl = subst(wl, fast_mode=True, new_name=wl.name + '_bias_add')
-        # subst = rule.parallel_conv_expand_kernels()
-        # wl = subst(wl, new_name=wl.name + '_parallel_conv')
+        for subst in [
+            rule.merge_relu(),
+            rule.simplify_batch_norm(),
+            rule.conv_mul(),
+            rule.bias_add_add(),
+            rule.two_conv_add(),
+        ]:
+            wl = subst(wl, fast_mode=True)
         wl.visualize()
         self.assertTrue(True)
 
@@ -293,11 +318,12 @@ if __name__ == '__main__':
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_diamond_conv_add'),
         # RuleTest('test_two_conv_add'),
+        # RuleTest('test_conv_batch_norm_sequential'),
         # RuleTest('test_conv_batch_norm'),
         # RuleTest('test_merge_relu'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
-        # RuleTest('test_sequential_subst'),
+        # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),
     ])

@@ -92,6 +92,50 @@ def two_conv_add():
     return Substitution(y1, y2)
 
 
+def simplify_batch_norm():
+    # Input
+    x = Wildcard()
+    gamma = Var()
+    beta = Var()
+    moving_mean = Var()
+    moving_var = Var()
+
+    # Source pattern: batch_norm(x, gamma, beta, mean, var)
+    bn = BatchNorm(x, gamma, beta, moving_mean, moving_var)
+    y1 = bn[0]
+
+    # Target pattern: k = gamma / sqrt(var + epsilon), x * k + beta - mean * k
+    k = gamma / Sqrt(moving_var + bn.epsilon)
+    bias = beta - moving_mean * k
+    y2 = BiasAdd(x * ExpandDims(k, axis=1, num_newaxis=2), bias)
+
+    # Build substitution
+    return Substitution(y1, y2)
+
+
+def conv_mul():
+    # Input
+    x = Wildcard()
+    w = Var()
+    k = Var(shape=(None, 1, 1))
+
+    # Source pattern: conv2d(x, w) * k
+    conv = Conv2D(x, w, groups=1)
+    y1 = conv * k
+
+    # Target pattern: conv2d(x, matmul(diag(k), reshape(w)))
+    zeros = Zeros(shape=(k.shape[0],) * 2, dtype=k.dtype)
+    diag = ExpandDims(MatrixSetDiag(zeros, Reshape(k, newshape=(-1,))), axis=0)
+    conv_mat = Reshape(w, newshape=(1, w.shape[0], -1))
+    matmul = BatchMatmul(diag, Transpose(conv_mat, axes=(0, 2, 1)))
+    fused_w = Reshape(matmul, newshape=w.shape)
+    y2 = Conv2D(x, fused_w, strides=conv.strides, padding=conv.padding,
+                dilation=conv.dilation, groups=1)
+
+    # Build substitution
+    return Substitution(y1, y2)
+
+
 def conv_batch_norm():
     # Input
     x = Wildcard()
@@ -102,10 +146,9 @@ def conv_batch_norm():
     moving_var = Var()
 
     # Source pattern
-    conv = Conv2D(x, w)
+    conv = Conv2D(x, w, groups=1)
     bn = BatchNorm(conv, gamma, beta, moving_mean, moving_var)
     y1 = bn[0]
-    # y1.visualize('conv_bn_pat')
 
     # Target pattern
     k = gamma / Sqrt(moving_var + bn.epsilon)
