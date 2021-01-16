@@ -53,11 +53,6 @@ class _ParamFolder(relay.ExprMutator):
                 args = self._get_values(call.args[0].fields)
                 attrs = self._cvt_attrs(call.attrs)
                 return self._add_param(np.concatenate(args, axis=attrs['axis']))
-            elif op_name == 'matrix_set_diag':
-                # In this project, we assume the first input of `matrix_set_diag` is always zero.
-                # This way, the semantic is similar to `np.diag`.
-                data = self._get_values(call.args[1:2])[0]
-                return self._add_param(np.diag(data))
             else:
                 return call
         except _FoldException:
@@ -115,6 +110,8 @@ _direct_mapped = {
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
     'expand_dims':
         lambda args, attrs: _expand_dims(args[0], attrs['axis'], attrs['num_newaxis']),
+    'matrix_set_diag':
+        lambda args, attrs: _matrix_set_diag(args[0], args[1]),
     'nn.pad':
         lambda args, attrs: np.pad(args[0], attrs['pad_width']),
     'nn.batch_matmul':
@@ -125,4 +122,10 @@ _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]]
 def _expand_dims(data: np.ndarray, axis: int, num_newaxis: int) -> np.ndarray:
     for i in range(num_newaxis):
         data = np.expand_dims(data, axis + i)
+    return data
+
+
+def _matrix_set_diag(data: np.ndarray, diagonal: np.ndarray) -> np.ndarray:
+    data = data.copy()
+    data[np.diag_indices_from(data)] = diagonal
     return data
