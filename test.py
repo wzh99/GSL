@@ -126,6 +126,23 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_conv_shortcut_add(self):
+        print('Conv-Shortcut-Add')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        w = relay.var('w', shape=(2, 2, 3, 3))
+        conv = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))
+        y = conv + x
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.conv_shortcut_add()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_conv_batch_norm_sequential(self):
         print('Conv-Mul')
 
@@ -318,6 +335,7 @@ if __name__ == '__main__':
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_diamond_conv_add'),
         # RuleTest('test_two_conv_add'),
+        # RuleTest('test_conv_shortcut_add'),
         # RuleTest('test_conv_batch_norm_sequential'),
         # RuleTest('test_conv_batch_norm'),
         # RuleTest('test_merge_relu'),

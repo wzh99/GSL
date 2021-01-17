@@ -18,6 +18,7 @@ num_inputs = {
 
     # Tensor generation
     zeros: 0,
+    ones: 0,
 
     # Tensor transformations
     concatenate: 1,

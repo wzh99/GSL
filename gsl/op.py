@@ -29,6 +29,14 @@ class Zeros(Call):
         }))
 
 
+class Ones(Call):
+    def __init__(self, shape: Union[tuple, AttrOpt] = None,
+                 dtype: Union[str, AttrOpt] = None):
+        super().__init__('ones', **_filter_attrs({
+            'shape': shape, 'dtype': dtype,
+        }))
+
+
 class Concatenate(Call):
     def __init__(self, data: ty.Tuple[NodeConvertible, ...],
                  axis: Optional[int] = None):
