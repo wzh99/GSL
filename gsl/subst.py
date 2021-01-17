@@ -4,8 +4,7 @@ from typing import Optional, Set
 
 from tvm import transform
 
-from . import util
-from .fold import ParamFoldPass
+from . import util, fold
 from .graph import *
 from .work import Workload
 
@@ -67,7 +66,7 @@ class Substitution:
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
 
-    def __call__(self, wl: Workload, fast_mode: bool = False, fold_param: bool = True,
+    def __call__(self, wl: Workload, fast_mode: bool = False, fold_params: bool = True,
                  new_name: Optional[str] = None) -> Workload:
         """
         Apply substitution to workload.
@@ -75,7 +74,8 @@ class Substitution:
         :param wl: Workload whose graph is to be altered.
         :param fast_mode: Whether to use fast substitution algorithm for single output pattern.
         In this mode, unmatched successors of interior nodes will not be checked.
-        :param fold_param: Whether to pre-compute nodes whose operands are already available.
+        :param fold_params: Whether to pre-compute nodes whose operands are already available in
+            parameters.
         :return: New workload after applying the substitution.
         """
 
@@ -86,20 +86,9 @@ class Substitution:
         # Apply substitution to graph
         rewriter = _ExprRewriter(self.src_pats, self.tgt_pats, fast_mode)
         mod = _SubstFuncPass(rewriter)(wl.mod)
-        if fold_param:
-            fold_pass = ParamFoldPass(wl.params)
-            mod = fold_pass(mod)
-            new_wl = Workload(mod, fold_pass.params, name=new_name)
-        else:
-            new_wl = Workload(mod, wl.params, name=new_name)
-
-        # Filter out unused parameters
-        param_names = set([p.name_hint for p in mod['main'].params])
-        used_params = dict()
-        for new_name, val in new_wl.params.items():
-            if param_names.__contains__(new_name):
-                used_params[new_name] = val
-        new_wl.params = used_params
+        new_wl = Workload(mod, wl.params, name=new_name)
+        if fold_params:
+            new_wl = fold.fold(new_wl)
 
         return new_wl
 

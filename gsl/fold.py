@@ -4,23 +4,40 @@ import numpy as np
 from tvm import relay, transform, ir
 
 from . import util
-from .work import default_dtype
+from .work import default_dtype, Workload
+
+
+def fold(wl: Workload) -> Workload:
+    # Fold parameters
+    fold_pass = _FoldFuncPass(wl.params)
+    mod = fold_pass(wl.mod)
+    new_wl = Workload(mod, fold_pass.params, name=wl.name)
+
+    # Filter out unused parameters
+    param_names = set([p.name_hint for p in mod['main'].params])
+    used_params = dict()
+    for name, val in new_wl.params.items():
+        if param_names.__contains__(name):
+            used_params[name] = val
+    new_wl.params = used_params
+
+    return new_wl
 
 
 @relay.transform.function_pass(opt_level=0)
-class ParamFoldPass:
+class _FoldFuncPass:
     def __init__(self, params: Dict[str, np.ndarray]):
         self.params = params.copy()
 
     def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
                            _ctx: transform.PassContext) -> relay.Function:
-        new_body = _ParamFolder(self.params).visit(fn.body)
+        new_body = _FoldMutator(self.params).visit(fn.body)
         return relay.Function(relay.analysis.free_vars(new_body), new_body)
 
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
-class _ParamFolder(relay.ExprMutator):
+class _FoldMutator(relay.ExprMutator):
     def __init__(self, params: Dict[str, np.ndarray]):
         super().__init__()
         self.params = params
@@ -103,6 +120,7 @@ _direct_mapped = {
     'exp',
     'sqrt',
     'zeros',
+    'ones',
     'reshape',
     'transpose',
 }
