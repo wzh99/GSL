@@ -102,10 +102,10 @@ def conv_shortcut_add():
     y1 = conv + x
 
     # Target pattern: conv2d(x, w + I)
-    zeros = Zeros(shape=(w.shape[0], w.shape[0]), dtype=w.dtype)
+    zeros = Zeros(shape=(w.shape[0],) * 2, dtype=w.dtype)
     diag = Ones(shape=(w.shape[0],), dtype=w.dtype)
     eye = ExpandDims(MatrixSetDiag(zeros, diag), axis=2, num_newaxis=2)
-    pad_w, pad_h = (w.shape[2] - 1) // 2, (w.shape[2] - 1) // 2
+    pad_w, pad_h = (w.shape[2] - 1) // 2, (w.shape[3] - 1) // 2
     new_wt = w + Pad(eye, pad_width=((0, 0), (0, 0), (pad_w,) * 2, (pad_h,) * 2))
     y2 = Conv2D(x, new_wt, strides=conv.strides, padding=conv.padding,
                 dilation=conv.dilation, groups=conv.groups)
