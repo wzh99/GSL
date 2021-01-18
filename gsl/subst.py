@@ -88,7 +88,7 @@ class Substitution:
         mod = _SubstFuncPass(rewriter)(wl.mod)
         new_wl = Workload(mod, wl.params, name=new_name)
         if fold_params:
-            new_wl = fold.fold(new_wl)
+            new_wl = fold(new_wl)
 
         return new_wl
 

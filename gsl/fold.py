@@ -8,6 +8,14 @@ from .work import default_dtype, Workload
 
 
 def fold(wl: Workload) -> Workload:
+    """
+    Pre-compute graph nodes whose operands are already available in parameter set.
+    The folding is performed recursively in reverse post-order, and the result will be stored as
+    new parameter. Folded parameters will be filtered removed from parameter set.
+
+    :param wl: Workload object whose parameters need folding.
+    :return: Workload object after folding.
+    """
     # Fold parameters
     fold_pass = _FoldFuncPass(wl.params)
     mod = fold_pass(wl.mod)
