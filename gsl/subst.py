@@ -2,7 +2,7 @@ import typing as ty
 from inspect import signature, Parameter
 from typing import Optional, Set
 
-from tvm import transform
+from tvm import relay, transform, ir
 
 from . import util, fold
 from .graph import *
@@ -441,21 +441,23 @@ class _RelayBuilder(NodeVisitor):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, AttrExpr):
-            value = AttrEvaluator(self.pat_to_expr).visit(const.value)
+            value = _AttrEvaluator(self.pat_to_expr).visit(const.value)
         else:
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr))
+        attrs = dict([(name, _AttrEvaluator(self.pat_to_expr).visit(attr))
                       for name, attr in call.attrs.items()])
-        func = spec.get_func(self.visit_op(call.op))
+        op_name = self.visit_op(call.op)
+        func = spec.get_func(op_name)
         try:
             call_expr = func(*args, **attrs)
         except TypeError:
-            raise RuntimeError('Cannot create relay expression with attributes {}'
-                               .format(attrs))
+            raise RuntimeError(
+                'Cannot create call expression for op \'{}\' with {} operand(s) and attribute '
+                'set {}.'.format(op_name, len(args), attrs))
         return call_expr
 
     def visit_op(self, op: Op) -> Any:
@@ -592,7 +594,7 @@ class _ExprMatcher:
 
         # Match attributes
         for name, attr in var.attrs.items():
-            if not self._match_attr(attr, AttrEvaluator.get_expr_attr(expr, name)):
+            if not self._match_attr(attr, _AttrEvaluator.get_expr_attr(expr, name)):
                 return False
 
         return True
@@ -629,6 +631,10 @@ class _ExprMatcher:
 
         # Match attributes
         for name, attr in call.attrs.items():
+            if (expr.attrs is None) or (name not in expr.attrs.keys()):
+                raise RuntimeError(
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
+                )
             if not self._match_attr(attr, expr.attrs[name]):
                 return False
 
@@ -646,7 +652,7 @@ class _ExprMatcher:
             raise RuntimeError('Unreachable.')
 
     def _match_attr(self, pat_attr: AttrExpr, expr_attr) -> bool:
-        pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr)
+        pat_val = _AttrEvaluator(self.pat_to_expr).visit(pat_attr)
         pat_val = util.cvt_ir_value(pat_val)
         expr_val = util.cvt_ir_value(expr_attr)
         return self._match_val(pat_val, expr_val)
@@ -687,3 +693,68 @@ class _ExprMatcher:
         if not isinstance(expr, relay.TupleGetItem):
             return False
         return getitem.index == expr.index and self.match(getitem.tup, expr.tuple_value)
+
+
+class _AttrEvaluator(AttrVisitor):
+    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+        self.pat_to_expr = pat_to_expr
+
+    @staticmethod
+    def get_expr_attr(expr: relay.Expr, name: str):
+        expr_ty = expr.checked_type
+        if not isinstance(expr_ty, ir.TensorType):
+            raise ValueError(
+                'Cannot get attribute from an expression not of tensor type.'
+            )
+        if name == 'shape':
+            return expr_ty.concrete_shape
+        elif name == 'dtype':
+            return expr_ty.dtype
+        else:
+            raise RuntimeError('Unreachable.')
+
+    def visit_any(self, a: AnyAttr):
+        return None
+
+    def visit_const(self, const: ConstAttr):
+        return const.value
+
+    def visit_get_attr(self, get_attr: GetAttr):
+        # Get actual expression from map
+        node = get_attr.node
+        name = get_attr.name
+        expr = self.pat_to_expr[node]
+
+        # Access attribute according to type of node
+        if name in Node.shared_attrs:
+            return self.get_expr_attr(expr, name)
+        elif isinstance(node, Call):
+            if (expr.attrs is None) or (name not in expr.attrs.keys()):
+                raise RuntimeError(
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
+                )
+            return expr.attrs[name]
+        else:
+            raise RuntimeError('Unreachable.')
+
+    def visit_list(self, list_attr: ListAttr):
+        return [self.visit(f) for f in list_attr.fields]
+
+    def visit_tuple(self, tup_attr: TupleAttr):
+        return tuple([self.visit(f) for f in tup_attr.fields])
+
+    def visit_getitem(self, getitem: GetItemAttr):
+        return self.visit(getitem.seq)[getitem.index]
+
+    def visit_binary(self, binary: BinaryExpr):
+        lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
+        ty_tup = (lv.__class__, rv.__class__)
+        bin_op = binary.op
+        op_func = BinaryExpr.eval_func[bin_op]
+        if ty_tup not in op_func:
+            raise RuntimeError(
+                'Operator \'{}\' not defined for type ({}, {})'.format(
+                    bin_op.value, ty_tup[0], ty_tup[1]
+                )
+            )
+        return op_func[ty_tup](lv, rv)

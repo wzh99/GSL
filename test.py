@@ -1,5 +1,7 @@
 import unittest
 
+from tvm import relay
+
 import rule
 from gsl import Workload, Substitution
 from gsl.graph import *

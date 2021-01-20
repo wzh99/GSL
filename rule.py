@@ -194,15 +194,15 @@ def merge_element_wise():
     x = Wildcard()
 
     # Source pattern
-    ew = OpWithFlag(OpFlag.ELEMENT_WISE)
-    relu_1 = Call(ew, x)
-    relu_2 = Call(ew, x)
+    ew_op = OpWithFlag(OpFlag.ELEMENT_WISE)
+    ew1 = Call(ew_op, x)
+    ew2 = Call(ew_op, x)
 
     # Target pattern
-    relu = Call(ew, x)
+    ew = Call(ew_op, x)
 
     # Build substitution
-    return Substitution([relu_1, relu_2], [relu, relu])
+    return Substitution([ew1, ew2], [ew, ew])
 
 
 def parallel_conv():

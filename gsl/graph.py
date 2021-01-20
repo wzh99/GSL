@@ -2,7 +2,6 @@ from typing import Dict
 
 import numpy as np
 from graphviz import Digraph
-from tvm import relay, ir
 
 from . import spec
 from .attr import *
@@ -370,67 +369,3 @@ class _PatternVisualizer(NodeVisitor):
         cur_id = str(self.counter)
         self.counter += 1
         return cur_id
-
-
-class AttrEvaluator(AttrVisitor):
-    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
-        self.pat_to_expr = pat_to_expr
-
-    @staticmethod
-    def get_expr_attr(expr: relay.Expr, name: str):
-        ty = expr.checked_type
-        if not isinstance(ty, ir.TensorType):
-            raise ValueError(
-                'Cannot get attribute from an expression not of tensor type.'
-            )
-        if name == 'shape':
-            return ty.concrete_shape
-        elif name == 'dtype':
-            return ty.dtype
-        else:
-            raise RuntimeError('Unreachable.')
-
-    def visit_any(self, a: AnyAttr):
-        return None
-
-    def visit_const(self, const: ConstAttr):
-        return const.value
-
-    def visit_get_attr(self, get_attr: GetAttr):
-        # Get actual expression from map
-        node = get_attr.node
-        name = get_attr.name
-        expr = self.pat_to_expr[node]
-
-        # Access attribute according to type of node
-        if name in Node.shared_attrs:
-            return self.get_expr_attr(expr, name)
-        elif isinstance(node, Call):
-            if name in expr.attrs.keys():
-                return expr.attrs[name]
-            else:
-                raise RuntimeError('Attribute \'{}\' is not found.'.format(name))
-        else:
-            raise RuntimeError('Unreachable.')
-
-    def visit_list(self, list_attr: ListAttr):
-        return [self.visit(f) for f in list_attr.fields]
-
-    def visit_tuple(self, tup_attr: TupleAttr):
-        return tuple([self.visit(f) for f in tup_attr.fields])
-
-    def visit_getitem(self, getitem: GetItemAttr):
-        return self.visit(getitem.seq)[getitem.index]
-
-    def visit_binary(self, binary: BinaryExpr):
-        lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
-        ty_tup = (lv.__class__, rv.__class__)
-        bin_op = binary.op
-        op_func = BinaryExpr.eval_func[bin_op]
-        if ty_tup not in op_func:
-            raise RuntimeError(
-                'Operator \'{}\' not defined for type ({}, {})'.format(
-                    bin_op.value, ty_tup[0], ty_tup[1]
-                )
-            )
-        return op_func[ty_tup](lv, rv)
