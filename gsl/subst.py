@@ -173,17 +173,19 @@ class _TgtPatChecker(NodeVisitor):
         # Visit arguments
         super().visit_call(call)
 
-        # Check if all non-default attributes are provided
-        func = spec.get_func(call.op)
-        num_input = spec.num_inputs[func]
-        required = set()
-        for name, param in list(signature(func).parameters.items())[num_input:]:
-            if param.default == Parameter.empty:
-                required.add(name)
-        required.difference_update(call.attrs.keys())
-        if len(required) != 0:
-            raise AttributeError('Required attributes {} are not provided for op \'{}\'.'
-                                 .format(tuple(required), call.op))
+        # Check if all non-default attributes are provided for concrete op
+        if isinstance(call.op, ConcreteOp):
+            op_name = call.op.name
+            func = spec.get_func(op_name)
+            num_input = spec.get_num_inputs(op_name)
+            required = set()
+            for name, param in list(signature(func).parameters.items())[num_input:]:
+                if param.default == Parameter.empty:
+                    required.add(name)
+            required.difference_update(call.attrs.keys())
+            if len(required) != 0:
+                raise AttributeError('Required attributes {} are not provided for op \'{}\'.'
+                                     .format(tuple(required), call.op))
 
         # Check if all attribute expressions only contain reference to nodes in source graph
         for a in call.attrs.values():
@@ -324,7 +326,7 @@ class _ExprRewriter:
             stack: List[ty.Tuple[Node, relay.Expr]] = []
 
             def add_succ(pat: Node, expr: relay.Expr):
-                if succ_map[expr] is None:
+                if expr not in succ_map:
                     return
                 for ps in pat.succ:
                     if ps in pat_to_expr or ps.src_idx != src_idx:
@@ -441,15 +443,28 @@ class _RelayBuilder(NodeVisitor):
         elif isinstance(const.value, AttrExpr):
             value = AttrEvaluator(self.pat_to_expr).visit(const.value)
         else:
-            raise RuntimeError('Impossible case.')
+            raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]
         attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr))
                       for name, attr in call.attrs.items()])
-        func = spec.get_func(call.op)
-        return func(*args, **attrs)
+        func = spec.get_func(self.visit_op(call.op))
+        try:
+            call_expr = func(*args, **attrs)
+        except TypeError:
+            raise RuntimeError('Cannot create relay expression with attributes {}'
+                               .format(attrs))
+        return call_expr
+
+    def visit_op(self, op: Op) -> Any:
+        if isinstance(op, ConcreteOp):
+            return op.name
+        elif isinstance(op, OpWithFlag):
+            return self.pat_to_expr[op].name
+        else:
+            raise RuntimeError('Unreachable.')
 
     def visit_tuple(self, tup: Tuple) -> Any:
         return relay.Tuple([self.visit(f) for f in tup.fields])
@@ -602,7 +617,7 @@ class _ExprMatcher:
 
         # Match op
         # If op matches, the number of arguments also matches
-        if call.op != expr.op.name:
+        if not self.match_op(call.op, expr.op):
             return False
 
         # Match arguments
@@ -618,6 +633,17 @@ class _ExprMatcher:
                 return False
 
         return True
+
+    def match_op(self, pat_op: Op, expr_op: ir.Op) -> bool:
+        if isinstance(pat_op, ConcreteOp):
+            return pat_op.name == expr_op.name
+        elif isinstance(pat_op, OpWithFlag):
+            matched = spec.match_flag(expr_op.name, pat_op.flag)
+            if matched:
+                self.pat_to_expr[pat_op] = expr_op
+            return matched
+        else:
+            raise RuntimeError('Unreachable.')
 
     def _match_attr(self, pat_attr: AttrExpr, expr_attr) -> bool:
         pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr)

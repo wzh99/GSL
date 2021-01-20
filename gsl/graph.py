@@ -166,23 +166,52 @@ def to_node(val: NodeConvertible) -> Node:
         raise TypeError('Cannot convert to pattern graph node.')
 
 
+class Op(Node):
+    def __str__(self):
+        pass
+
+
+class ConcreteOp(Op):
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    def __str__(self):
+        return self.name
+
+
+class OpWithFlag(Op):
+    def __init__(self, flag: spec.OpFlag):
+        super().__init__()
+        self.flag = flag
+
+    def __str__(self):
+        return self.flag.name
+
+
 class Call(Node):
     """
     Represents an operator call.
     """
 
-    def __init__(self, op_name: str, *args: NodeConvertible, **raw_attr):
+    def __init__(self, op: Union[Op, str, spec.OpFlag], *args: NodeConvertible, **raw_attr):
         super().__init__()
-        self.op = op_name
         self.args = [to_node(a) for a in args]
 
+        # Convert valid alternatives of Op to node
+        if isinstance(op, str):
+            op = ConcreteOp(op)
+        elif isinstance(op, spec.OpFlag):
+            op = OpWithFlag(op)
+        self.op = op
+
         # Check number of inputs
-        func = spec.get_func(op_name)
-        num_input = spec.num_inputs[func]
-        if num_input != len(args):
-            raise ValueError(
-                'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
-            )
+        if isinstance(op, ConcreteOp):
+            num_input = spec.get_num_inputs(op.name)
+            if num_input != len(args):
+                raise ValueError(
+                    'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
+                )
 
         # Set self as output of arguments
         for a in args:
@@ -192,12 +221,13 @@ class Call(Node):
         self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
 
         # Check if specified attributes really exists in op
-        attr_names = spec.get_attr_names(func)
-        for name, val in self.attrs.items():
-            if name not in attr_names:
-                raise AttributeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, op_name)
-                )
+        if isinstance(op, ConcreteOp):
+            attr_names = spec.get_op_attr_names(op.name)
+            for name, val in self.attrs.items():
+                if name not in attr_names:
+                    raise AttributeError(
+                        'Attribute \'{}\' not found in op \'{}\'.'.format(name, op.name)
+                    )
 
     @property
     def pred(self):
@@ -208,13 +238,13 @@ class Call(Node):
         if name in self.shared_attrs:
             return super().__getattr__(name)
 
-        # Validate attribute name for current op
-        func = spec.get_func(self.op)
-        attr_names = spec.get_attr_names(func)
-        if name not in attr_names:
-            raise AttributeError(
-                'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
-            )
+        # Validate attribute name for concrete op
+        if isinstance(self.op, ConcreteOp):
+            attr_names = spec.get_op_attr_names(self.op.name)
+            if name not in attr_names:
+                raise AttributeError(
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
+                )
 
         return GetAttr(self, name)
 
@@ -258,6 +288,8 @@ class NodeVisitor:
             ret = self.visit_const(node)
         elif isinstance(node, Call):
             ret = self.visit_call(node)
+        elif isinstance(node, Op):
+            ret = self.visit_op(node)
         elif isinstance(node, Tuple):
             ret = self.visit_tuple(node)
         elif isinstance(node, GetItem):
@@ -277,8 +309,12 @@ class NodeVisitor:
         pass
 
     def visit_call(self, call: Call) -> Any:
+        self.visit(call.op)
         for arg in call.args:
             self.visit(arg)
+
+    def visit_op(self, op: Op) -> Any:
+        pass
 
     def visit_tuple(self, tup: Tuple) -> Any:
         for f in tup.fields:
@@ -312,7 +348,7 @@ class _PatternVisualizer(NodeVisitor):
 
     def visit_call(self, call: Call) -> Any:
         node_id = self._next_id()
-        self.graph.node(node_id, label=call.op, **self.attrs)
+        self.graph.node(node_id, label=str(call.op), **self.attrs)
         for a in call.args:
             self.graph.edge(self.visit(a), node_id)
         return node_id
@@ -370,7 +406,10 @@ class AttrEvaluator(AttrVisitor):
         if name in Node.shared_attrs:
             return self.get_expr_attr(expr, name)
         elif isinstance(node, Call):
-            return expr.attrs[name]
+            if name in expr.attrs.keys():
+                return expr.attrs[name]
+            else:
+                raise RuntimeError('Attribute \'{}\' is not found.'.format(name))
         else:
             raise RuntimeError('Unreachable.')
 

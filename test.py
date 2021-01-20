@@ -188,7 +188,7 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
-    def test_merge_relu(self):
+    def test_merge_element_wise(self):
         print('Merge ReLU')
 
         # Source graph
@@ -204,7 +204,7 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
 
         # Apply substitution
-        subst = rule.merge_relu()
+        subst = rule.merge_element_wise()
         wl = subst(wl)
         print(wl.mod)
         self.assertTrue(True)
@@ -278,7 +278,7 @@ class RuleTest(unittest.TestCase):
 
         # Apply substitutions
         for subst in [
-            rule.merge_relu(),
+            rule.merge_element_wise(),
             rule.parallel_conv_expand_kernels(),
             rule.simplify_batch_norm(),
             rule.conv_mul(),
@@ -319,7 +319,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         for subst in [
-            rule.merge_relu(),
+            rule.merge_element_wise(),
             rule.simplify_batch_norm(),
             rule.conv_mul(),
             rule.bias_add_add(),
@@ -343,11 +343,11 @@ if __name__ == '__main__':
         # RuleTest('test_conv_shortcut_add'),
         # RuleTest('test_conv_batch_norm_sequential'),
         # RuleTest('test_conv_batch_norm'),
-        # RuleTest('test_merge_relu'),
+        # RuleTest('test_merge_element_wise'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
-        ModelTest('test_nasnet'),
+        # ModelTest('test_nasnet'),
     ])
     unittest.TextTestRunner().run(suite)

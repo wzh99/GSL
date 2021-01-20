@@ -189,16 +189,17 @@ def conv_batch_norm():
     return Substitution(y1, y2)
 
 
-def merge_relu():
+def merge_element_wise():
     # Input
     x = Wildcard()
 
     # Source pattern
-    relu_1 = ReLU(x)
-    relu_2 = ReLU(x)
+    ew = OpWithFlag(OpFlag.ELEMENT_WISE)
+    relu_1 = Call(ew, x)
+    relu_2 = Call(ew, x)
 
     # Target pattern
-    relu = ReLU(x)
+    relu = Call(ew, x)
 
     # Build substitution
     return Substitution([relu_1, relu_2], [relu, relu])
