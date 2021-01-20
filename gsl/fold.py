@@ -52,7 +52,7 @@ class _FoldMutator(relay.ExprMutator):
         self.next_idx = 1
 
     def visit(self, expr: relay.Expr):
-        if self.memo_map.__contains__(expr):
+        if expr in self.memo_map:
             return self.memo_map[expr]
         ret = super().visit(expr)
         self.memo_map[expr] = ret
@@ -65,12 +65,12 @@ class _FoldMutator(relay.ExprMutator):
         # Fold parameters
         op_name = call.op.name
         try:
-            if _direct_mapped.__contains__(op_name):  # mapped to numpy APIs
+            if op_name in _direct_mapped:  # mapped to numpy APIs
                 args = self._get_values(call.args)
                 attrs = self._cvt_attrs(call.attrs)
                 np_func = eval('np.{}'.format(op_name))
                 return self._add_param(np_func(*args, **attrs))
-            elif _eval_funcs.__contains__(op_name):
+            elif op_name in _eval_funcs:
                 args = self._get_values(call.args)
                 attrs = self._cvt_attrs(call.attrs)
                 return self._add_param(_eval_funcs[op_name](args, attrs))
@@ -88,7 +88,7 @@ class _FoldMutator(relay.ExprMutator):
         for a in args:
             if isinstance(a, relay.Constant):
                 values.append(np.array(a.data.asnumpy(), dtype=default_dtype))
-            elif isinstance(a, relay.Var) and self.params.__contains__(a.name_hint):
+            elif isinstance(a, relay.Var) and a.name_hint in self.params:
                 values.append(self.params[a.name_hint])
             else:
                 raise _FoldException()
@@ -110,7 +110,7 @@ class _FoldMutator(relay.ExprMutator):
         while True:
             name = '_param_{}'.format(self.next_idx)
             self.next_idx += 1
-            if not self.params.__contains__(name):
+            if name not in self.params:
                 return name
 
 

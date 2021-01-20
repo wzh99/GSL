@@ -1,8 +1,15 @@
+from enum import IntFlag, auto
 from inspect import signature
 from types import FunctionType
 from typing import List
 
 from tvm.relay import *
+
+
+class OpProperty(IntFlag):
+    ELEMENT_WISE = auto()
+    BROADCASTING = auto()
+
 
 # Specify number of input tensors of Relay API.
 num_inputs = {
@@ -43,7 +50,7 @@ def get_func(name: str) -> FunctionType:
 
 
 def get_attr_names(func: FunctionType) -> List[str]:
-    if not num_inputs.__contains__(func):
+    if func not in num_inputs:
         raise ValueError(
             'Specification of Relay API \'{}\' is not found.'.format(func.__name__)
         )

@@ -62,7 +62,7 @@ class Workload:
         # Generate random parameters
         params: Dict[str, np.ndarray] = dict()
         for v in free_vars:
-            if input_names.__contains__(v.name_hint):  # skip input tensors
+            if v.name_hint in input_names:  # skip input tensors
                 continue
             shape: Tuple[int] = v.type_annotation.concrete_shape
             params[v.name_hint] = np.random.rand(*shape)
@@ -163,7 +163,7 @@ class _ExprVisualizer(relay.ExprVisitor):
         self.counter = 0
 
     def visit(self, expr):
-        if self.memo_map.__contains__(expr):
+        if expr in self.memo_map:
             return self.memo_map[expr]
         return super().visit(expr)
 

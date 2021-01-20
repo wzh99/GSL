@@ -39,7 +39,7 @@ class Node:
     shared_attrs = {'shape', 'dtype'}
 
     def __getattr__(self, name: str):
-        if not self.shared_attrs.__contains__(name):
+        if name not in self.shared_attrs:
             raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
         return GetAttr(self, name)
 
@@ -109,7 +109,7 @@ class Var(Node):
         # Check attributes for variable
         self.attrs: Dict[str, AttrExpr] = {}
         for name, attr in raw_attrs.items():
-            if not self.avail_attrs.__contains__(name):
+            if name not in self.avail_attrs:
                 raise AttributeError(
                     'Attribute \'{}\' not found in variable node'.format(name)
                 )
@@ -194,7 +194,7 @@ class Call(Node):
         # Check if specified attributes really exists in op
         attr_names = spec.get_attr_names(func)
         for name, val in self.attrs.items():
-            if not attr_names.__contains__(name):
+            if name not in attr_names:
                 raise AttributeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, op_name)
                 )
@@ -205,13 +205,13 @@ class Call(Node):
 
     def __getattr__(self, name: str):
         # Check shared attributes first
-        if self.shared_attrs.__contains__(name):
+        if name in self.shared_attrs:
             return super().__getattr__(name)
 
         # Validate attribute name for current op
         func = spec.get_func(self.op)
         attr_names = spec.get_attr_names(func)
-        if not attr_names.__contains__(name):
+        if name not in attr_names:
             raise AttributeError(
                 'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
             )
@@ -248,7 +248,7 @@ class NodeVisitor:
         self.visited: Dict[Node, Any] = dict()
 
     def visit(self, node: Node):
-        if self.visited.__contains__(node):
+        if node in self.visited:
             return self.visited[node]
         if isinstance(node, Wildcard):
             ret = self.visit_wildcard(node)
@@ -367,7 +367,7 @@ class AttrEvaluator(AttrVisitor):
         expr = self.pat_to_expr[node]
 
         # Access attribute according to type of node
-        if Node.shared_attrs.__contains__(name):
+        if name in Node.shared_attrs:
             return self.get_expr_attr(expr, name)
         elif isinstance(node, Call):
             return expr.attrs[name]
@@ -388,7 +388,7 @@ class AttrEvaluator(AttrVisitor):
         ty_tup = (lv.__class__, rv.__class__)
         bin_op = binary.op
         op_func = BinaryExpr.eval_func[bin_op]
-        if not op_func.__contains__(ty_tup):
+        if ty_tup not in op_func:
             raise RuntimeError(
                 'Operator \'{}\' not defined for type ({}, {})'.format(
                     bin_op.value, ty_tup[0], ty_tup[1]

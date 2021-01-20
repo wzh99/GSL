@@ -313,6 +313,9 @@ class ModelTest(unittest.TestCase):
         import model
         net = model.nasnet.get_model(1)
         wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
+        # x_in = np.random.rand(*model.batch_shape_nchw)
+        # wl.build(target='metal')
+        # y1 = wl(input_1=x_in)
 
         # Apply substitution
         for subst in [
@@ -324,6 +327,8 @@ class ModelTest(unittest.TestCase):
         ]:
             wl = subst(wl, fast_mode=True)
         wl.visualize()
+        # wl.build(target='metal')
+        # y2 = wl(input_1=x_in)
         self.assertTrue(True)
 
 
@@ -343,6 +348,6 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
-        # ModelTest('test_nasnet'),
+        ModelTest('test_nasnet'),
     ])
     unittest.TextTestRunner().run(suite)

@@ -101,7 +101,7 @@ class _SrcPatChecker(NodeVisitor):
         self.attr_checker = _SrcAttrChecker(self)
 
     def has_visited(self, node: Node):
-        return self.visited.__contains__(node) or self.prev_visited.__contains__(node)
+        return node in self.visited or node in self.prev_visited
 
     def visit(self, node: Node):
         if (not self.has_visited(node)) and node.is_used:
@@ -143,7 +143,7 @@ class _TgtPatChecker(NodeVisitor):
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
     def visit(self, node: Node):
-        if not (self.visited.__contains__(node) or self.src_nodes.__contains__(node)) \
+        if not (node in self.visited or node in self.src_nodes) \
                 and node.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
@@ -152,13 +152,13 @@ class _TgtPatChecker(NodeVisitor):
         node.in_tgt = True
 
     def visit_wildcard(self, wildcard: Wildcard) -> Any:
-        if not self.src_nodes.__contains__(wildcard):
+        if wildcard not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
     def visit_var(self, var: Var) -> Any:
-        if not self.src_nodes.__contains__(var):
+        if var not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
@@ -195,7 +195,7 @@ class _TgtAttrChecker(AttrVisitor):
         self.src_nodes = src_nodes
 
     def visit_get_attr(self, get_attr: GetAttr):
-        if not self.src_nodes.__contains__(get_attr.node):
+        if get_attr.node not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )
@@ -265,7 +265,7 @@ class _ExprRewriter:
         visited: Set[relay.Expr] = {expr}
 
         def update(e: relay.Expr):
-            if not visited.__contains__(e):
+            if e not in visited:
                 stack.append(StackElem(e, 0))
                 visited.add(e)
 
@@ -282,7 +282,7 @@ class _ExprRewriter:
             else:
                 # Do not match this expression if it has been visited this round or is in match
                 # history
-                if self.history.__contains__(cur_expr):
+                if cur_expr in self.history:
                     continue
 
                 # Use first pattern to roughly locate the subgraph
@@ -327,10 +327,10 @@ class _ExprRewriter:
                 if succ_map[expr] is None:
                     return
                 for ps in pat.succ:
-                    if pat_to_expr.__contains__(ps) or ps.src_idx != src_idx:
+                    if ps in pat_to_expr or ps.src_idx != src_idx:
                         continue
                     for es in succ_map[expr]:
-                        if expr_matched.__contains__(es) or self.history.__contains__(es):
+                        if es in expr_matched or es in self.history:
                             continue  # matched expression cannot be matched again
                         stack.append((ps, es))
                         if not isinstance(pat, (Wildcard, Var)):
@@ -416,7 +416,7 @@ class _SuccListBuilder(relay.ExprVisitor):
         self._add_succ(t.tuple_value, t)
 
     def _add_succ(self, pred: relay.Expr, succ: relay.Expr):
-        if self.succ_list.__contains__(pred):
+        if pred in self.succ_list:
             self.succ_list[pred].append(succ)
         else:
             self.succ_list[pred] = [succ]
@@ -428,7 +428,7 @@ class _RelayBuilder(NodeVisitor):
         self.pat_to_expr = pat_to_expr
 
     def visit(self, node: Node):
-        if self.pat_to_expr.__contains__(node):
+        if node in self.pat_to_expr:
             return self.pat_to_expr[node]
         else:
             expr = super().visit(node)
@@ -464,9 +464,9 @@ class _RewriteMutator(relay.ExprMutator):
         self.expr_map = expr_map
 
     def visit(self, expr: relay.Expr):
-        if self.expr_map.__contains__(expr):
+        if expr in self.expr_map:
             return self.expr_map[expr]
-        elif self.memo_map.__contains__(expr):
+        elif expr in self.memo_map:
             return self.memo_map[expr]
         else:
             ret = super().visit(expr)
@@ -515,7 +515,7 @@ class _SinglePatRewriter(relay.ExprMutator):
 
     def visit(self, expr: relay.Expr):
         # Directly return if it has been visited before
-        if self.memo_map.__contains__(expr):
+        if expr in self.memo_map:
             return self.memo_map[expr]
 
         # Rewrite predecessors
@@ -541,11 +541,11 @@ class _ExprMatcher:
 
     def match(self, pat: Node, expr: relay.Expr) -> bool:
         # Already matched, use history record
-        if self.pat_to_expr.__contains__(pat):
+        if pat in self.pat_to_expr:
             return self.pat_to_expr[pat] == expr
 
         # Reject if the expression has been matched with another node
-        if self.expr_matched.__contains__(expr):
+        if expr in self.expr_matched:
             return False
 
         # Try matching according to pattern node type
