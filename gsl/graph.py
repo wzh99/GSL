@@ -100,7 +100,7 @@ class Var(Node):
     not defined in source graph.
     """
 
-    avail_attrs = {'shape', 'dtype'}
+    lhs_attrs = {'shape', 'dtype'}
 
     def __init__(self, **raw_attrs):
         super().__init__()
@@ -108,9 +108,10 @@ class Var(Node):
         # Check attributes for variable
         self.attrs: Dict[str, AttrExpr] = {}
         for name, attr in raw_attrs.items():
-            if name not in self.avail_attrs:
+            if name not in self.lhs_attrs:
                 raise AttributeError(
-                    'Attribute \'{}\' not found in variable node'.format(name)
+                    'Attribute \'{}\' cannot appear on lhs of a constraint for '
+                    'variables.'.format(name)
                 )
             self.attrs[name] = to_attr(attr)
 
