@@ -1,23 +1,22 @@
-import typing as ty
 from typing import Optional
 
-from .graph import *
+from .pat import *
 
 AttrOpt = Optional[Attr]
 
 
 class Abs(Call):
-    def __init__(self, data: NodeConvertible):
+    def __init__(self, data: PatternConvertible):
         super().__init__('call', data)
 
 
 class Exp(Call):
-    def __init__(self, data: NodeConvertible):
+    def __init__(self, data: PatternConvertible):
         super().__init__('exp', data)
 
 
 class Sqrt(Call):
-    def __init__(self, data: NodeConvertible):
+    def __init__(self, data: PatternConvertible):
         super().__init__('sqrt', data)
 
 
@@ -38,15 +37,15 @@ class Ones(Call):
 
 
 class Concatenate(Call):
-    def __init__(self, data: ty.Tuple[NodeConvertible, ...],
+    def __init__(self, data: Tuple[PatternConvertible, ...],
                  axis: Optional[int] = None):
-        super().__init__('concatenate', Tuple(*data), **_filter_attrs({
+        super().__init__('concatenate', Tup(*data), **_filter_attrs({
             'axis': axis,
         }))
 
 
 class Split(Call):
-    def __init__(self, data: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
                  indices_or_sections: Union[int, tuple, AttrOpt] = None,
                  axis: Union[int, AttrOpt] = None):
         super().__init__('split', data, **_filter_attrs({
@@ -55,7 +54,7 @@ class Split(Call):
 
 
 class Reshape(Call):
-    def __init__(self, data: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
                  newshape: Union[tuple, AttrOpt] = None):
         super().__init__('reshape', data, **_filter_attrs({
             'newshape': newshape,
@@ -63,7 +62,7 @@ class Reshape(Call):
 
 
 class Transpose(Call):
-    def __init__(self, data: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
                  axes: Union[tuple, list, AttrOpt] = None):
         super().__init__('transpose', data, **_filter_attrs({
             'axes': axes,
@@ -71,7 +70,7 @@ class Transpose(Call):
 
 
 class ExpandDims(Call):
-    def __init__(self, data: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
                  axis: Union[int, AttrOpt] = None,
                  num_newaxis: Union[int, AttrOpt] = None):
         super().__init__('expand_dims', data, **_filter_attrs({
@@ -80,8 +79,8 @@ class ExpandDims(Call):
 
 
 class MatrixSetDiag(Call):
-    def __init__(self, data: NodeConvertible,
-                 diagonal: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
+                 diagonal: PatternConvertible,
                  k: Union[int, tuple, AttrOpt] = None,
                  align: Union[str, AttrOpt] = None):
         super().__init__('matrix_set_diag', data, diagonal, **_filter_attrs({
@@ -90,8 +89,8 @@ class MatrixSetDiag(Call):
 
 
 class Conv2D(Call):
-    def __init__(self, data: NodeConvertible,
-                 weight: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
+                 weight: PatternConvertible,
                  strides: Union[tuple, AttrOpt] = None,
                  padding: Union[tuple, AttrOpt] = None,
                  dilation: Union[tuple, AttrOpt] = None,
@@ -102,11 +101,11 @@ class Conv2D(Call):
 
 
 class BatchNorm(Call):
-    def __init__(self, data: NodeConvertible,
-                 gamma: NodeConvertible,
-                 beta: NodeConvertible,
-                 moving_mean: NodeConvertible,
-                 moving_var: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
+                 gamma: PatternConvertible,
+                 beta: PatternConvertible,
+                 moving_mean: PatternConvertible,
+                 moving_var: PatternConvertible,
                  axis: Union[int, AttrOpt] = None,
                  epsilon: Union[float, AttrOpt] = None,
                  center: Union[bool, AttrOpt] = None,
@@ -119,8 +118,8 @@ class BatchNorm(Call):
 
 
 class BiasAdd(Call):
-    def __init__(self, data: NodeConvertible,
-                 bias: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
+                 bias: PatternConvertible,
                  axis: Union[int, AttrOpt] = None):
         super().__init__('nn.bias_add', data, bias, **_filter_attrs({
             'axis': axis
@@ -128,12 +127,12 @@ class BiasAdd(Call):
 
 
 class ReLU(Call):
-    def __init__(self, data: NodeConvertible):
+    def __init__(self, data: PatternConvertible):
         super().__init__('nn.relu', data)
 
 
 class Pad(Call):
-    def __init__(self, data: NodeConvertible,
+    def __init__(self, data: PatternConvertible,
                  pad_width: Union[tuple, AttrOpt] = None,
                  pad_value: Union[float, AttrOpt] = None,
                  pad_mode: Union[str, AttrOpt] = None):
@@ -143,7 +142,7 @@ class Pad(Call):
 
 
 class BatchMatmul(Call):
-    def __init__(self, x: NodeConvertible, y: NodeConvertible):
+    def __init__(self, x: PatternConvertible, y: PatternConvertible):
         super().__init__('nn.batch_matmul', x, y)
 
 

@@ -1,11 +1,10 @@
-import typing as ty
 from inspect import signature, Parameter
 from typing import Optional, Set
 
 from tvm import relay, transform, ir
 
 from . import util, fold
-from .graph import *
+from .pat import *
 from .work import Workload
 
 
@@ -14,7 +13,8 @@ class Substitution:
     Represents a graph substitution rule.
     """
 
-    def __init__(self, src_pats: Union[Node, List[Node]], tgt_pats: Union[Node, List[Node]]):
+    def __init__(self, src_pats: Union[Pattern, List[Pattern]],
+                 tgt_pats: Union[Pattern, List[Pattern]]):
         """
         Constructor.
 
@@ -23,9 +23,9 @@ class Substitution:
             in target pattern list must strictly follow the one in source pattern list.
         """
         # Convert source and target patterns to lists if necessary
-        if isinstance(src_pats, Node):
+        if isinstance(src_pats, Pattern):
             src_pats = [src_pats]
-        if isinstance(tgt_pats, Node):
+        if isinstance(tgt_pats, Pattern):
             tgt_pats = [tgt_pats]
 
         # Check if number of source and target pattern matches
@@ -35,7 +35,7 @@ class Substitution:
             )
 
         # Check source patterns
-        src_nodes: Set[Node] = set()
+        src_nodes: Set[Pattern] = set()
         for i in range(len(src_pats)):
             # Check if output nodes have no successors
             src = src_pats[i]
@@ -94,16 +94,16 @@ class Substitution:
 
 
 class _SrcPatChecker(NodeVisitor):
-    def __init__(self, prev_visited: Set[Node], idx: int):
+    def __init__(self, prev_visited: Set[Pattern], idx: int):
         super().__init__()
         self.prev_visited = prev_visited
         self.idx = idx
         self.attr_checker = _SrcAttrChecker(self)
 
-    def has_visited(self, node: Node):
+    def has_visited(self, node: Pattern):
         return node in self.visited or node in self.prev_visited
 
-    def visit(self, node: Node):
+    def visit(self, node: Pattern):
         if (not self.has_visited(node)) and node.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
@@ -137,12 +137,12 @@ class _SrcAttrChecker(AttrVisitor):
 
 
 class _TgtPatChecker(NodeVisitor):
-    def __init__(self, src_nodes: Set[Node]):
+    def __init__(self, src_nodes: Set[Pattern]):
         super().__init__()
         self.src_nodes = src_nodes
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
-    def visit(self, node: Node):
+    def visit(self, node: Pattern):
         if not (node in self.visited or node in self.src_nodes) \
                 and node.in_tgt:
             raise ValueError(
@@ -193,7 +193,7 @@ class _TgtPatChecker(NodeVisitor):
 
 
 class _TgtAttrChecker(AttrVisitor):
-    def __init__(self, src_nodes: Set[Node]):
+    def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
     def visit_get_node(self, get_node: GetNodeAttr):
@@ -220,7 +220,7 @@ SuccListDict = Dict[relay.Expr, List[relay.Expr]]
 
 
 class _ExprRewriter:
-    def __init__(self, src_pats: List[Node], tgt_pats: List[Node], fast_mode: bool):
+    def __init__(self, src_pats: List[Pattern], tgt_pats: List[Pattern], fast_mode: bool):
         self.src_pats = src_pats
         self.tgt_pats = tgt_pats
         self.fast_mode = fast_mode
@@ -236,7 +236,7 @@ class _ExprRewriter:
             succ_list = self.build_succ_list(expr)
 
             # Find matched expressions with patterns
-            pat_to_expr: Dict[Node, relay.Expr] = dict()
+            pat_to_expr: Dict[Pattern, relay.Expr] = dict()
             src_matched = self.find_match(expr, pat_to_expr, succ_list)
             if len(src_matched) == 0:  # even a single match is not found
                 return expr
@@ -255,7 +255,7 @@ class _ExprRewriter:
             # Rewrite expression
             expr = _RewriteMutator(expr_map).visit(expr)
 
-    def find_match(self, expr: relay.Expr, pat_to_expr: Dict[Node, relay.Expr],
+    def find_match(self, expr: relay.Expr, pat_to_expr: Dict[Pattern, relay.Expr],
                    succ_list: SuccListDict) -> List[relay.Expr]:
         # Traverse the expression graph
         class StackElem:
@@ -306,7 +306,7 @@ class _ExprRewriter:
 
         return []
 
-    def match_rest(self, pat_to_expr: Dict[Node, relay.Expr], fst_matched: relay.Expr,
+    def match_rest(self, pat_to_expr: Dict[Pattern, relay.Expr], fst_matched: relay.Expr,
                    succ_map: Dict[relay.Expr, List[relay.Expr]]) -> List[relay.Expr]:
         output_matched = [fst_matched]
         for src_idx in range(len(self.src_pats)):
@@ -323,9 +323,9 @@ class _ExprRewriter:
             # Find candidate node-expression pair where the node is connected to matched ones.
             # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
             # there must exist some node that satisfies the condition.
-            stack: List[ty.Tuple[Node, relay.Expr]] = []
+            stack: List[Tuple[Pattern, relay.Expr]] = []
 
-            def add_succ(pat: Node, expr: relay.Expr):
+            def add_succ(pat: Pattern, expr: relay.Expr):
                 if expr not in succ_map:
                     return
                 for ps in pat.succ:
@@ -379,7 +379,7 @@ class _ExprRewriter:
         return succ_visitor.succ_list
 
     @staticmethod
-    def check_succ(pat_to_expr: Dict[Node, relay.Expr], succ_list: SuccListDict) -> bool:
+    def check_succ(pat_to_expr: Dict[Pattern, relay.Expr], succ_list: SuccListDict) -> bool:
         for p, e in pat_to_expr.items():
             # Skip wildcard and variables because they serve as input nodes
             if isinstance(p, (Wildcard, Var)):
@@ -425,11 +425,11 @@ class _SuccListBuilder(relay.ExprVisitor):
 
 
 class _RelayBuilder(NodeVisitor):
-    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
-    def visit(self, node: Node):
+    def visit(self, node: Pattern):
         if node in self.pat_to_expr:
             return self.pat_to_expr[node]
         else:
@@ -468,7 +468,7 @@ class _RelayBuilder(NodeVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup: Tuple) -> Any:
+    def visit_tuple(self, tup: Tup) -> Any:
         return relay.Tuple([self.visit(f) for f in tup.fields])
 
     def visit_getitem(self, getitem: GetItem) -> Any:
@@ -540,7 +540,7 @@ class _SinglePatRewriter(relay.ExprMutator):
         self.memo_map[expr] = new_expr
 
         # Match pattern with this expression
-        pat_to_expr: Dict[Node, relay.Expr] = {}
+        pat_to_expr: Dict[Pattern, relay.Expr] = {}
         matcher = _ExprMatcher(pat_to_expr)
         if not matcher.match(self.src_pat, new_expr):
             return new_expr
@@ -552,11 +552,11 @@ class _SinglePatRewriter(relay.ExprMutator):
 
 
 class _ExprMatcher:
-    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         self.pat_to_expr = pat_to_expr
         self.expr_matched = set(pat_to_expr.values())
 
-    def match(self, pat: Node, expr: relay.Expr) -> bool:
+    def match(self, pat: Pattern, expr: relay.Expr) -> bool:
         # Already matched, use history record
         if pat in self.pat_to_expr:
             return self.pat_to_expr[pat] == expr
@@ -574,7 +574,7 @@ class _ExprMatcher:
             res = self.match_const(pat, expr)
         elif isinstance(pat, Call):
             res = self.match_call(pat, expr)
-        elif isinstance(pat, Tuple):
+        elif isinstance(pat, Tup):
             res = self.match_tuple(pat, expr)
         elif isinstance(pat, GetItem):
             res = self.match_getitem(pat, expr)
@@ -673,7 +673,7 @@ class _ExprMatcher:
         else:
             return False
 
-    def match_tuple(self, tup: Tuple, expr: relay.Expr) -> bool:
+    def match_tuple(self, tup: Tup, expr: relay.Expr) -> bool:
         # Match tuple node
         if not isinstance(expr, relay.Tuple):
             return False
@@ -696,7 +696,7 @@ class _ExprMatcher:
 
 
 class _AttrEvaluator(AttrVisitor):
-    def __init__(self, pat_to_expr: Dict[Node, relay.Expr]):
+    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         self.pat_to_expr = pat_to_expr
 
     @staticmethod
@@ -726,7 +726,7 @@ class _AttrEvaluator(AttrVisitor):
         expr = self.pat_to_expr[node]
 
         # Access attribute according to type of node
-        if name in Node.shared_attrs:
+        if name in Pattern.shared_attrs:
             return self.get_expr_attr(expr, name)
         elif isinstance(node, Call):
             if (expr.attrs is None) or (name not in expr.attrs.keys()):

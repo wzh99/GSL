@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import List
 
 import numpy as np
 from graphviz import Digraph
@@ -8,13 +8,13 @@ from .attr import *
 from .util import default_font_name
 
 
-class Node:
+class Pattern:
     """
-    Base class for all graph pattern nodes. This class cannot be instantiated.
+    Base class for all pattern graph nodes. This class cannot be directly instantiated.
     """
 
     def __init__(self):
-        self.succ: List[Node] = []
+        self.succ: List[Pattern] = []
         self.src_idx = -1
         self.in_tgt = False
 
@@ -86,7 +86,7 @@ class Node:
         graph.view(directory=path)
 
 
-class Wildcard(Node):
+class Wildcard(Pattern):
     """
     A wildcard node matches all nodes in graph. Target graph cannot contain wildcard nodes not
     defined in source graph.
@@ -94,7 +94,7 @@ class Wildcard(Node):
     pass
 
 
-class Var(Node):
+class Var(Pattern):
     """
     A variable node matches input tensor of the model. Target graph cannot contain variable nodes
     not defined in source graph.
@@ -119,7 +119,7 @@ class Var(Node):
 ConstValueType = Union[int, float, list, np.ndarray]
 
 
-class Const(Node):
+class Const(Pattern):
     """
     A constant nodes stores constants in graph.
     """
@@ -148,17 +148,17 @@ class Const(Node):
             )
 
 
-NodeConvertible = Union[Node, ConstValueType]
+PatternConvertible = Union[Pattern, ConstValueType]
 
 
-def to_node(val: NodeConvertible) -> Node:
+def to_node(val: PatternConvertible) -> Pattern:
     """
     Create a graph pattern node with given value
 
     :param val: All types of values that are or can be converted to an graph pattern node.
     :return: Graph pattern node created from given value.
     """
-    if isinstance(val, Node):
+    if isinstance(val, Pattern):
         return val
     elif isinstance(val, Const.value_class):
         return Const(val)
@@ -166,7 +166,7 @@ def to_node(val: NodeConvertible) -> Node:
         raise TypeError('Cannot convert to pattern graph node.')
 
 
-class Op(Node):
+class Op(Pattern):
     def __str__(self):
         pass
 
@@ -189,12 +189,12 @@ class OpWithFlag(Op):
         return self.flag.name
 
 
-class Call(Node):
+class Call(Pattern):
     """
     Represents an operator call.
     """
 
-    def __init__(self, op: Union[Op, str, spec.OpFlag], *args: NodeConvertible, **raw_attr):
+    def __init__(self, op: Union[Op, str, spec.OpFlag], *args: PatternConvertible, **raw_attr):
         super().__init__()
         self.args = [to_node(a) for a in args]
 
@@ -249,8 +249,8 @@ class Call(Node):
         return GetNodeAttr(self, name)
 
 
-class Tuple(Node):
-    def __init__(self, *raw_fields: NodeConvertible):
+class Tup(Pattern):
+    def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
         self.fields = [to_node(f) for f in raw_fields]
         for f in raw_fields:
@@ -261,8 +261,8 @@ class Tuple(Node):
         return self.fields
 
 
-class GetItem(Node):
-    def __init__(self, tup: Node, index: int):
+class GetItem(Pattern):
+    def __init__(self, tup: Pattern, index: int):
         super().__init__()
         self.tup = tup
         self.index = index
@@ -275,9 +275,9 @@ class GetItem(Node):
 
 class NodeVisitor:
     def __init__(self):
-        self.visited: Dict[Node, Any] = dict()
+        self.visited: Dict[Pattern, Any] = dict()
 
-    def visit(self, node: Node):
+    def visit(self, node: Pattern):
         if node in self.visited:
             return self.visited[node]
         if isinstance(node, Wildcard):
@@ -290,7 +290,7 @@ class NodeVisitor:
             ret = self.visit_call(node)
         elif isinstance(node, Op):
             ret = self.visit_op(node)
-        elif isinstance(node, Tuple):
+        elif isinstance(node, Tup):
             ret = self.visit_tuple(node)
         elif isinstance(node, GetItem):
             ret = self.visit_getitem(node)
@@ -316,7 +316,7 @@ class NodeVisitor:
     def visit_op(self, op: Op) -> Any:
         pass
 
-    def visit_tuple(self, tup: Tuple) -> Any:
+    def visit_tuple(self, tup: Tup) -> Any:
         for f in tup.fields:
             self.visit(f)
 
@@ -353,7 +353,7 @@ class _PatternVisualizer(NodeVisitor):
             self.graph.edge(self.visit(a), node_id)
         return node_id
 
-    def visit_tuple(self, tup: Tuple) -> Any:
+    def visit_tuple(self, tup: Tup) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='(,)', **self.attrs)
         for f in tup.fields:

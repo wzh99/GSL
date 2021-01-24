@@ -4,7 +4,7 @@ from tvm import relay
 
 import rule
 from gsl import Workload, Substitution
-from gsl.graph import *
+from gsl.pat import *
 
 
 class MatchTest(unittest.TestCase):
