@@ -233,7 +233,7 @@ def parallel_conv_expand_kernels():
     w2 = Var(shape=(w1.shape[0], None, None, None))
 
     # Source pattern
-    def same_padding(h: AttrExpr, w: AttrExpr):
+    def same_padding(h: Attr, w: Attr):
         pad_h = (h - 1) // 2
         pad_w = (w - 1) // 2
         return pad_h, pad_w, pad_h, pad_w

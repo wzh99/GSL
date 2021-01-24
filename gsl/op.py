@@ -3,7 +3,7 @@ from typing import Optional
 
 from .graph import *
 
-AttrOpt = Optional[AttrExpr]
+AttrOpt = Optional[Attr]
 
 
 class Abs(Call):

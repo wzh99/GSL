@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 from graphviz import Digraph
@@ -40,7 +40,7 @@ class Node:
     def __getattr__(self, name: str):
         if name not in self.shared_attrs:
             raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
-        return GetAttr(self, name)
+        return GetNodeAttr(self, name)
 
     def __getitem__(self, index: int):
         return GetItem(self, index)
@@ -106,7 +106,7 @@ class Var(Node):
         super().__init__()
 
         # Check attributes for variable
-        self.attrs: Dict[str, AttrExpr] = {}
+        self.attrs: Dict[str, Attr] = {}
         for name, attr in raw_attrs.items():
             if name not in self.lhs_attrs:
                 raise AttributeError(
@@ -123,9 +123,9 @@ class Const(Node):
     """
     A constant nodes stores constants in graph.
     """
-    value_class = (int, float, list, np.ndarray, AttrExpr)
+    value_class = (int, float, list, np.ndarray, Attr)
 
-    def __init__(self, value: Union[ConstValueType, AttrExpr, None]):
+    def __init__(self, value: Union[ConstValueType, Attr, None]):
         """
         Constructor.
 
@@ -138,7 +138,7 @@ class Const(Node):
         super().__init__()
         if value is None:
             self.value = None
-        elif isinstance(value, (AttrExpr, np.ndarray)):
+        elif isinstance(value, (Attr, np.ndarray)):
             self.value = value
         elif isinstance(value, (int, float, list)):
             self.value = np.array(value)
@@ -246,7 +246,7 @@ class Call(Node):
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
                 )
 
-        return GetAttr(self, name)
+        return GetNodeAttr(self, name)
 
 
 class Tuple(Node):

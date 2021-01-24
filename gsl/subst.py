@@ -112,7 +112,7 @@ class _SrcPatChecker(NodeVisitor):
         node.src_idx = self.idx
 
     def visit_const(self, const: Const) -> Any:
-        if isinstance(const.value, AttrExpr):
+        if isinstance(const.value, Attr):
             raise TypeError(
                 'Constant node in source graph cannot store an attribute expression.'
             )
@@ -129,8 +129,8 @@ class _SrcAttrChecker(AttrVisitor):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
-    def visit_get_attr(self, get_attr: GetAttr):
-        if not self.checker.has_visited(get_attr.node):
+    def visit_get_node(self, get_node: GetNodeAttr):
+        if not self.checker.has_visited(get_node.node):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
@@ -196,8 +196,8 @@ class _TgtAttrChecker(AttrVisitor):
     def __init__(self, src_nodes: Set[Node]):
         self.src_nodes = src_nodes
 
-    def visit_get_attr(self, get_attr: GetAttr):
-        if get_attr.node not in self.src_nodes:
+    def visit_get_node(self, get_node: GetNodeAttr):
+        if get_node.node not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )
@@ -440,7 +440,7 @@ class _RelayBuilder(NodeVisitor):
     def visit_const(self, const: Const) -> Any:
         if isinstance(const.value, np.ndarray):
             value = const.value
-        elif isinstance(const.value, AttrExpr):
+        elif isinstance(const.value, Attr):
             value = _AttrEvaluator(self.pat_to_expr).visit(const.value)
         else:
             raise RuntimeError('Unreachable.')
@@ -651,7 +651,7 @@ class _ExprMatcher:
         else:
             raise RuntimeError('Unreachable.')
 
-    def _match_attr(self, pat_attr: AttrExpr, expr_attr) -> bool:
+    def _match_attr(self, pat_attr: Attr, expr_attr) -> bool:
         pat_val = _AttrEvaluator(self.pat_to_expr).visit(pat_attr)
         pat_val = util.cvt_ir_value(pat_val)
         expr_val = util.cvt_ir_value(expr_attr)
@@ -719,10 +719,10 @@ class _AttrEvaluator(AttrVisitor):
     def visit_const(self, const: ConstAttr):
         return const.value
 
-    def visit_get_attr(self, get_attr: GetAttr):
+    def visit_get_node(self, get_node: GetNodeAttr):
         # Get actual expression from map
-        node = get_attr.node
-        name = get_attr.name
+        node = get_node.node
+        name = get_node.name
         expr = self.pat_to_expr[node]
 
         # Access attribute according to type of node
@@ -737,20 +737,17 @@ class _AttrEvaluator(AttrVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_list(self, list_attr: ListAttr):
-        return [self.visit(f) for f in list_attr.fields]
-
     def visit_tuple(self, tup_attr: TupleAttr):
         return tuple([self.visit(f) for f in tup_attr.fields])
 
     def visit_getitem(self, getitem: GetItemAttr):
         return self.visit(getitem.seq)[getitem.index]
 
-    def visit_binary(self, binary: BinaryExpr):
+    def visit_binary(self, binary: BinaryAttr):
         lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
         ty_tup = (lv.__class__, rv.__class__)
         bin_op = binary.op
-        op_func = BinaryExpr.eval_func[bin_op]
+        op_func = BinaryAttr.eval_func[bin_op]
         if ty_tup not in op_func:
             raise RuntimeError(
                 'Operator \'{}\' not defined for type ({}, {})'.format(

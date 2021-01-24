@@ -1,10 +1,10 @@
 from enum import Enum
-from typing import Union, List, Any
+from typing import Union, Any, Dict, Tuple, Type, Callable
 
 AttrValueType = Union[bool, int, float, str]
 
 
-class AttrExpr:
+class Attr:
     """
     AST for attribute expression.
     """
@@ -14,44 +14,44 @@ class AttrExpr:
         return GetItemAttr(self, index)
 
     def __add__(self, other):
-        return BinaryExpr(BinaryOp.ADD, self, to_attr(other))
+        return BinaryAttr(BinaryOp.ADD, self, to_attr(other))
 
     def __radd__(self, other):
-        return BinaryExpr(BinaryOp.ADD, to_attr(other), self)
+        return BinaryAttr(BinaryOp.ADD, to_attr(other), self)
 
     def __sub__(self, other):
-        return BinaryExpr(BinaryOp.SUB, self, to_attr(other))
+        return BinaryAttr(BinaryOp.SUB, self, to_attr(other))
 
     def __rsub__(self, other):
-        return BinaryExpr(BinaryOp.SUB, to_attr(other), self)
+        return BinaryAttr(BinaryOp.SUB, to_attr(other), self)
 
     def __mul__(self, other):
-        return BinaryExpr(BinaryOp.MUL, self, to_attr(other))
+        return BinaryAttr(BinaryOp.MUL, self, to_attr(other))
 
     def __rmul__(self, other):
-        return BinaryExpr(BinaryOp.MUL, to_attr(other), self)
+        return BinaryAttr(BinaryOp.MUL, to_attr(other), self)
 
     def __floordiv__(self, other):
-        return BinaryExpr(BinaryOp.FLOOR_DIV, self, to_attr(other))
+        return BinaryAttr(BinaryOp.FLOOR_DIV, self, to_attr(other))
 
     def __rfloordiv__(self, other):
-        return BinaryExpr(BinaryOp.FLOOR_DIV, to_attr(other), self)
+        return BinaryAttr(BinaryOp.FLOOR_DIV, to_attr(other), self)
 
     def max(self, other):
-        return BinaryExpr(BinaryOp.MAX, self, to_attr(other))
+        return BinaryAttr(BinaryOp.MAX, self, to_attr(other))
 
     def min(self, other):
-        return BinaryExpr(BinaryOp.MIN, self, to_attr(other))
+        return BinaryAttr(BinaryOp.MIN, self, to_attr(other))
 
 
-class AnyAttr(AttrExpr):
+class AnyAttr(Attr):
     """
     Matches any attribute value.
     """
     pass
 
 
-class ConstAttr(AttrExpr):
+class ConstAttr(Attr):
     """
     A compile-time constant attribute value.
     """
@@ -60,7 +60,7 @@ class ConstAttr(AttrExpr):
         self.value = value
 
 
-class GetAttr(AttrExpr):
+class GetNodeAttr(Attr):
     """
     Access attribute from a graph node.
     """
@@ -70,16 +70,7 @@ class GetAttr(AttrExpr):
         self.name = name
 
 
-class ListAttr(AttrExpr):
-    """
-    Create a list attribute expression.
-    """
-
-    def __init__(self, fields: List[Union[AttrExpr, AttrValueType]]):
-        self.fields = [to_attr(e) for e in fields]
-
-
-class TupleAttr(AttrExpr):
+class TupleAttr(Attr):
     """
     Create a list attribute expression.
     """
@@ -88,20 +79,20 @@ class TupleAttr(AttrExpr):
         self.fields = tuple([to_attr(e) for e in fields])
 
 
-class GetItemAttr(AttrExpr):
+class GetItemAttr(Attr):
     """
-    Get item from a list or tuple attribute with given index
+    Get item from a tuple attribute with given index.
     """
 
-    def __init__(self, seq: AttrExpr, index: int):
+    def __init__(self, seq: Attr, index: int):
         self.seq = seq
         self.index = index
 
 
-AttrConvertible = Union[AttrExpr, AttrValueType, tuple, list, None]
+AttrConvertible = Union[Attr, AttrValueType, tuple, list, None]
 
 
-def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
+def to_attr(val: Union[Attr, AttrValueType, tuple, list, None]) -> Attr:
     """
     Create an attribute expression with given value.
 
@@ -110,13 +101,11 @@ def to_attr(val: Union[AttrExpr, AttrValueType, tuple, list, None]) -> AttrExpr:
     """
     if val is None:
         return AnyAttr()
-    elif isinstance(val, AttrExpr):
+    elif isinstance(val, Attr):
         return val
-    elif isinstance(val, AttrExpr.value_class):
+    elif isinstance(val, Attr.value_class):
         return ConstAttr(val)
-    elif isinstance(val, list):
-        return ListAttr(val)
-    elif isinstance(val, tuple):
+    elif isinstance(val, (tuple, list)):
         return TupleAttr(*val)
     else:
         raise TypeError(
@@ -133,17 +122,17 @@ class BinaryOp(Enum):
     MIN = 'min'
 
 
-class BinaryExpr(AttrExpr):
+class BinaryAttr(Attr):
     """
-    Binary expression of attribute values.
+    Binary expression of attributes..
     """
 
-    def __init__(self, op_name: BinaryOp, lhs: AttrExpr, rhs: AttrExpr):
+    def __init__(self, op_name: BinaryOp, lhs: Attr, rhs: Attr):
         self.op = op_name
         self.lhs = lhs
         self.rhs = rhs
 
-    eval_func = {
+    eval_func: Dict[BinaryOp, Dict[Tuple[Type, Type], Callable[[Any, Any], Any]]] = {
         BinaryOp.ADD: {
             (int, int): int.__add__,
         },
@@ -166,20 +155,18 @@ class BinaryExpr(AttrExpr):
 
 
 class AttrVisitor:
-    def visit(self, attr: AttrExpr) -> Any:
+    def visit(self, attr: Attr) -> Any:
         if isinstance(attr, AnyAttr):
             return self.visit_any(attr)
         elif isinstance(attr, ConstAttr):
             return self.visit_const(attr)
-        elif isinstance(attr, GetAttr):
-            return self.visit_get_attr(attr)
-        elif isinstance(attr, ListAttr):
-            return self.visit_list(attr)
+        elif isinstance(attr, GetNodeAttr):
+            return self.visit_get_node(attr)
         elif isinstance(attr, TupleAttr):
             return self.visit_tuple(attr)
         elif isinstance(attr, GetItemAttr):
             return self.visit_getitem(attr)
-        elif isinstance(attr, BinaryExpr):
+        elif isinstance(attr, BinaryAttr):
             return self.visit_binary(attr)
         else:
             raise RuntimeError('Unknown attribute type.')
@@ -190,12 +177,8 @@ class AttrVisitor:
     def visit_const(self, const: ConstAttr) -> Any:
         pass
 
-    def visit_get_attr(self, get_attr: GetAttr) -> Any:
+    def visit_get_node(self, get_node: GetNodeAttr) -> Any:
         pass
-
-    def visit_list(self, list_attr: ListAttr) -> Any:
-        for f in list_attr.fields:
-            self.visit(f)
 
     def visit_tuple(self, tup_attr: TupleAttr) -> Any:
         for f in tup_attr.fields:
@@ -204,5 +187,5 @@ class AttrVisitor:
     def visit_getitem(self, getitem: GetItemAttr) -> Any:
         self.visit(getitem.seq)
 
-    def visit_binary(self, binary: BinaryExpr) -> Any:
+    def visit_binary(self, binary: BinaryAttr) -> Any:
         pass
