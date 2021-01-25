@@ -93,7 +93,7 @@ class Substitution:
         return new_wl
 
 
-class _SrcPatChecker(NodeVisitor):
+class _SrcPatChecker(PatternVisitor):
     def __init__(self, prev_visited: Set[Pattern], idx: int):
         super().__init__()
         self.prev_visited = prev_visited
@@ -136,7 +136,7 @@ class _SrcAttrChecker(AttrVisitor):
             )
 
 
-class _TgtPatChecker(NodeVisitor):
+class _TgtPatChecker(PatternVisitor):
     def __init__(self, src_nodes: Set[Pattern]):
         super().__init__()
         self.src_nodes = src_nodes
@@ -424,7 +424,7 @@ class _SuccListBuilder(relay.ExprVisitor):
             self.succ_list[pred] = [succ]
 
 
-class _RelayBuilder(NodeVisitor):
+class _RelayBuilder(PatternVisitor):
     def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         super().__init__()
         self.pat_to_expr = pat_to_expr

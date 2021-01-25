@@ -49,28 +49,28 @@ class Pattern:
         return Call('negative', self)
 
     def __add__(self, other):
-        return Call('add', self, to_node(other))
+        return Call('add', self, to_pat(other))
 
     def __radd__(self, other):
-        return Call('add', to_node(other), self)
+        return Call('add', to_pat(other), self)
 
     def __sub__(self, other):
-        return Call('subtract', self, to_node(other))
+        return Call('subtract', self, to_pat(other))
 
     def __rsub__(self, other):
-        return Call('subtract', to_node(other), self)
+        return Call('subtract', to_pat(other), self)
 
     def __mul__(self, other):
-        return Call('multiply', self, to_node(other))
+        return Call('multiply', self, to_pat(other))
 
     def __rmul__(self, other):
-        return Call('multiply', to_node(other), self)
+        return Call('multiply', to_pat(other), self)
 
     def __truediv__(self, other):
-        return Call('divide', self, to_node(other))
+        return Call('divide', self, to_pat(other))
 
     def __rtruediv__(self, other):
-        return Call('divide', to_node(other), self)
+        return Call('divide', to_pat(other), self)
 
     def visualize(self, name: str, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
@@ -82,7 +82,7 @@ class Pattern:
         :param attrs: Other attributes for GraphViz to plot the nodes.
         """
         graph = Digraph(name=name)
-        _PatternVisualizer(graph, fontname=font_name, **attrs).visit(self)
+        _Visualizer(graph, fontname=font_name, **attrs).visit(self)
         graph.view(directory=path)
 
 
@@ -151,9 +151,9 @@ class Const(Pattern):
 PatternConvertible = Union[Pattern, ConstValueType]
 
 
-def to_node(val: PatternConvertible) -> Pattern:
+def to_pat(val: PatternConvertible) -> Pattern:
     """
-    Create a graph pattern node with given value
+    Create a graph pattern node with given value.
 
     :param val: All types of values that are or can be converted to an graph pattern node.
     :return: Graph pattern node created from given value.
@@ -196,7 +196,7 @@ class Call(Pattern):
 
     def __init__(self, op: Union[Op, str, spec.OpFlag], *args: PatternConvertible, **raw_attr):
         super().__init__()
-        self.args = [to_node(a) for a in args]
+        self.args = [to_pat(a) for a in args]
 
         # Convert valid alternatives of Op to node
         if isinstance(op, str):
@@ -252,7 +252,7 @@ class Call(Pattern):
 class Tup(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
-        self.fields = [to_node(f) for f in raw_fields]
+        self.fields = [to_pat(f) for f in raw_fields]
         for f in raw_fields:
             f.succ.append(self)
 
@@ -273,7 +273,7 @@ class GetItem(Pattern):
         return [self.tup]
 
 
-class NodeVisitor:
+class PatternVisitor:
     def __init__(self):
         self.visited: Dict[Pattern, Any] = dict()
 
@@ -324,7 +324,7 @@ class NodeVisitor:
         self.visit(getitem.tup)
 
 
-class _PatternVisualizer(NodeVisitor):
+class _Visualizer(PatternVisitor):
     def __init__(self, graph: Digraph, **attrs):
         super().__init__()
         self.graph = graph
