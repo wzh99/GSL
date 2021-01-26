@@ -4,11 +4,7 @@ GSL (pronounced Gie-sel) is a declarative domain-specific language, embedded in 
 
 ## Introduction
 
-One iteration of deep learning program can be modeled by a computation graph. To improve runtime performance of models, deep learning compilers perform graph substitutions on computation graphs of them, which replace a subgraph with its computationally equivalent one. Operator fusion, canonicalization and lowering can all be done through graph substitutions. 
-
-However, writing graph substitution passes can be a lot of work, considering the variety of operators, the number of substitution rules and the complexity of graph structures. Common graph substitution passes follow a match-capture-rewrite process, where programmers writes matching and rewriting procedures in an imperative manner. This could lead to repetition of boilerplate code. 
-
-The essence of graph substitution is just structure of source and target patterns, as well as constraints imposed on them. An declarative language could save programmers from the repetitive work, and let executor to work out the rest. This is where GSL comes from.
+Deep learning compilers perform graph substitutions on computation graphs of models. Common graph substitution passes follow a match-capture-rewrite process, which may lead to repetition of boilerplate code. GSL helps users focuses on essence of graph substitution - structure of source and target patterns, as well as constraints imposed on them, thus reducing repetitive work. 
 
 Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/docs/dev/relay_intro.html) and can be used as an alternative to its [pattern language](https://tvm.apache.org/docs/langref/relay_pattern.html#pattern-language-design). It can be ported to other graph-level IRs because of their similarity. 
 
@@ -17,6 +13,12 @@ Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/
 * **Declarative**. The language makes users focus on essence of graph substitutions. They don't need to care about details of substitution algorithm. 
 * **Simple**. The language makes full use of Python features to make it simple and concise.  Substitution rules can be defined and applied to the graph at any time, with only a few lines of code. 
 * **Expressive**. The language support patterns with any number of output nodes. Complex constraints on operator attributes could be specified using attribute expressions. 
+
+## Dependency
+
+* tvm>=0.7
+* numpy
+* graphviz (if graph visualization feature is needed)
 
 ## Language
 
@@ -54,15 +56,17 @@ At the very beginning, we import all the necessary classes and functions from pa
 
 First, we define all the input nodes, including wildcards (which matches any expression) and variables. The second kernel must have identical shape with the first, so we provide a keyword argument as an attribute constraint. The `shape` keyword on the left hand side is an attribute of variable `w2`. The right hand side is an attribute expression which gets attribute `shape` of `w1`.
 
-Second, we define source pattern graph. For the first convolution, we just need to write `Conv2D(x, w1)`. `Conv2D(...)` is a shorthand for call pattern `Call('nn.conv2d', ...)`. There are a lot of predefined operator patterns in `gsl.op` for ease of use. Since we are defining a pattern instead of a concrete operator call, we don't provide all the other attributes. That means any call expression that look like `nn.conv2d(x, w1, ...)` will match this pattern, regardless of its attributes. For the second convolution `conv2`, it has input nodes `x` and `w2`, and should have identical strides, padding, dilation and groups with the first one, so we specify constraints on these four attributes. The output is addition of the results of two convolutions, so we define `y1 = conv1 + conv2`. Arithmetic operators are overloaded for pattern nodes, so we can write pattern expression with these operators just like writing Python expressions. 
+Second, we define source pattern graph. For the first convolution,  it has input nodes `x` and `w1`, so we just need to define `conv1 = Conv2D(x, w1)`. For the second convolution, it has input nodes `x` and `w2`, and should have identical strides, padding, dilation and groups with the `conv1`, so we specify constraints on these four attributes. The output is addition of the results of two convolutions, so we define `y1 = conv1 + conv2`. 
 
-Then the target pattern. There is nothing new after introducing the source pattern, so we skip it here.
+Then the target pattern, a single convolution. The kernel is addition of `w1` and `w2`. The target convolution must also have identical strides, padding, dilation and groups with either of the convolutions in source pattern. 
 
 Finally, we build substitution with source and target patterns. The code is very straightforward. The `Substitution` class will perform semantics checking on the pattern. After checking, it can be applied to deep learning workloads. 
 
 ## Executor
 
-The language carries essential information for graph substitution. The executor then used this information to actually perform substitution on real computation graphs. The executor uses a bidirectional matching algorithm to handle patterns with multiple nodes, and falls back to a simpler algorithm for single node. Here we just shows how the rule above applies to a Relay workload. 
+The pattern carries essential information for graph substitution. The executor then used this information to actually perform substitution on real computation graphs. The executor uses a bidirectional matching algorithm to handle patterns with multiple nodes, and falls back to a simpler algorithm for single node. Here we just shows how the rule above applies to a Relay workload. 
+
+We define a simple test case with Relay API, then create a `Workload` object. TVM provides module (which describes a computation graph) and parameter dictionary separately. `Workload` just combines these two things. Since we don't have trained parameters for this workload, we let static method `from_expr` create random parameters for us.  Set `{'x'}` indicates variable `x` is input of the model and should not be included in parameter dictionary. 
 
 ```python
 from tvm import relay
@@ -85,13 +89,11 @@ def @main(%x: Tensor[(2, 2, 4, 4), float32], %w1: Tensor[(4, 2, 1, 1), float32],
 }
 ```
 
-We define a simple test case with Relay API, then create a `Workload` object. TVM provides module (which describes a computation graph) and parameter dictionary separately. `Workload` just combines these two things. Since we don't have trained parameters for this workload, we let static method `from_expr` create random parameters for us.  Set `{'x'}` indicates variable `x` is input of the model and should not be included in parameter dictionary. 
-
 Code for application of substitution is quite simple, just one line. Then we can print the module after substitution.
 
 ```python
-wl = subst(wl)
-print(wl.mod)
+new_wl = subst(wl)
+print(new_wl.mod)
 ```
 
 ```
@@ -100,4 +102,22 @@ def @main(%x: Tensor[(2, 2, 4, 4), float32], %v_param_1: Tensor[(4, 2, 1, 1), fl
 }
 ```
 
-We can see that the two convolutions are fused to one, a new kernel is created and the original two are removed. The executor successfully performs the substitution. 
+We can see that the two convolutions are fused to one, a new kernel is created and the original two are removed. We can run the workload on same input to test its correctness.
+
+```python
+import numpy as np
+
+x = np.random.rand(2, 2, 4, 4)
+wl.build()
+y1 = wl(x=x)
+new_wl.build()
+y2 = new_wl(x=x)
+print(np.max(np.abs(y2 - y1)))
+```
+
+```
+2.3841858e-07
+```
+
+The floating point computational difference is very small, this means the substitution is correct. 
+
