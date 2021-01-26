@@ -1,7 +1,6 @@
 from typing import List
 
 import numpy as np
-from graphviz import Digraph
 
 from . import spec
 from .attr import *
@@ -81,6 +80,7 @@ class Pattern:
         :param font_name: Name of the font used to display node texts.
         :param attrs: Other attributes for GraphViz to plot the nodes.
         """
+        from graphviz import Digraph
         graph = Digraph(name=name)
         _Visualizer(graph, fontname=font_name, **attrs).visit(self)
         graph.view(directory=path)
@@ -325,9 +325,10 @@ class PatternVisitor:
 
 
 class _Visualizer(PatternVisitor):
-    def __init__(self, graph: Digraph, **attrs):
+    def __init__(self, graph, **attrs):
         super().__init__()
-        self.graph = graph
+        from graphviz import Digraph
+        self.graph: Digraph = graph
         self.attrs = attrs
         self.counter = 0
 

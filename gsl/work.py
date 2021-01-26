@@ -2,8 +2,8 @@ from typing import Dict, Union, List, Tuple, Optional, Set, Any
 
 import numpy as np
 import tvm
-from graphviz import Digraph
 from tvm import ir, runtime, relay, transform
+
 from .util import default_font_name
 
 default_dtype = 'float32'
@@ -114,6 +114,7 @@ class Workload:
         :param font_name: Name of the font used to display node texts.
         :param attrs: Other attributes for GraphViz to plot the nodes.
         """
+        from graphviz import Digraph
         graph = Digraph(name=self.name)
         viz = _ExprVisualizer(graph, fontname=font_name, **attrs)
         viz.visit_function(self.mod['main'])
@@ -156,9 +157,10 @@ class _TensorDTypeMutator(relay.TypeMutator):
 
 
 class _ExprVisualizer(relay.ExprVisitor):
-    def __init__(self, graph: Digraph, **attrs):
+    def __init__(self, graph, **attrs):
         super().__init__()
-        self.graph = graph
+        from graphviz import Digraph
+        self.graph: Digraph = graph
         self.attrs = attrs
         self.counter = 0
 
