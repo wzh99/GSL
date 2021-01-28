@@ -78,15 +78,14 @@ def two_conv_add():
 
     # Source pattern: conv2d(x1, w1) + conv2d(x2, w2)
     conv1 = Conv2D(x1, w1)
-    conv2 = Conv2D(x2, w2, strides=conv1.strides, padding=conv1.padding,
-                   dilation=conv1.dilation, groups=conv1.groups)
+    conv2 = Conv2D(x2, w2, **same_attrs(conv1, ['strides', 'padding', 'dilation', 'groups']))
     y1 = conv1 + conv2
 
     # Target pattern: conv2d(concat(x1, x2), concat(w1, w2))
     x_concat = Concatenate((x1, x2), axis=1)
     w_concat = Concatenate((w1, w2), axis=1)
-    y2 = Conv2D(x_concat, w_concat, strides=conv1.strides, padding=conv1.padding,
-                dilation=conv1.dilation, groups=conv1.groups)
+    y2 = Conv2D(x_concat, w_concat,
+                **same_attrs(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
     # Build substitution
     return Substitution(y1, y2)
@@ -107,8 +106,7 @@ def conv_shortcut_add():
     eye = ExpandDims(MatrixSetDiag(zeros, diag), axis=2, num_newaxis=2)
     pad_w, pad_h = (w.shape[2] - 1) // 2, (w.shape[3] - 1) // 2
     new_wt = w + Pad(eye, pad_width=((0, 0), (0, 0), (pad_w,) * 2, (pad_h,) * 2))
-    y2 = Conv2D(x, new_wt, strides=conv.strides, padding=conv.padding,
-                dilation=conv.dilation, groups=conv.groups)
+    y2 = Conv2D(x, new_wt, **same_attrs(conv, ['strides', 'padding', 'dilation', 'groups']))
 
     # Build substitution
     return Substitution(y1, y2)
@@ -151,8 +149,7 @@ def conv_mul():
     conv_mat = Reshape(w, newshape=(1, w.shape[0], -1))
     matmul = BatchMatmul(diag, Transpose(conv_mat, axes=(0, 2, 1)))
     fused_w = Reshape(matmul, newshape=w.shape)
-    y2 = Conv2D(x, fused_w, strides=conv.strides, padding=conv.padding,
-                dilation=conv.dilation, groups=1)
+    y2 = Conv2D(x, fused_w, groups=1, **same_attrs(conv, ['strides', 'padding', 'dilation']))
 
     # Build substitution
     return Substitution(y1, y2)
@@ -180,8 +177,8 @@ def conv_batch_norm():
     conv_w = Reshape(w, newshape=(1, w.shape[0], -1))
     matmul = BatchMatmul(diag, Transpose(conv_w, axes=[0, 2, 1]))
     fused_w = Reshape(matmul, newshape=w.shape)
-    new_conv = Conv2D(x, fused_w, strides=conv.strides, padding=conv.padding,
-                      dilation=conv.dilation, groups=conv.groups)
+    new_conv = Conv2D(x, fused_w,
+                      **same_attrs(conv, ['strides', 'padding', 'dilation', 'groups']))
     bias = beta - moving_mean * k
     y2 = BiasAdd(new_conv, bias)
 
@@ -213,13 +210,11 @@ def parallel_conv():
 
     # Source pattern
     conv1 = Conv2D(x, w1)
-    conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding,
-                   dilation=conv1.dilation, groups=conv1.groups)
+    conv2 = Conv2D(x, w2, **same_attrs(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
     # Target pattern
     w = Concatenate((w1, w2), axis=0)
-    conv = Conv2D(x, w, strides=conv1.strides, padding=conv1.padding,
-                  dilation=conv1.dilation, groups=conv1.groups)
+    conv = Conv2D(x, w, **same_attrs(conv1, ['strides', 'padding', 'dilation', 'groups']))
     split = Split(conv, indices_or_sections=2, axis=1)
 
     # Build substitution
@@ -241,8 +236,8 @@ def parallel_conv_expand_kernels():
     conv1_pad = same_padding(w1.shape[2], w1.shape[3])
     conv1 = Conv2D(x, w1, padding=conv1_pad, strides=(1, 1), dilation=(1, 1))
     conv2_pad = same_padding(w2.shape[2], w2.shape[3])
-    conv2 = Conv2D(x, w2, padding=conv2_pad, strides=(1, 1), dilation=(1, 1),
-                   groups=conv1.groups)
+    conv2 = Conv2D(x, w2, padding=conv2_pad,
+                   **same_attrs(conv1, ['strides', 'dilation', 'groups']))
 
     # Target pattern
     max_h, max_w = w1.shape[2].max(w2.shape[2]), w1.shape[3].max(w2.shape[3])
@@ -254,8 +249,8 @@ def parallel_conv_expand_kernels():
     w2_pad = Pad(w2, pad_width=((0, 0), (0, 0), (w2_pad_h,) * 2, (w2_pad_w,) * 2))
     concat = Concatenate((w1_pad, w2_pad), axis=0)
     new_conv_pad = same_padding(max_h, max_w)
-    new_conv = Conv2D(x, concat, padding=new_conv_pad, strides=(1, 1),
-                      dilation=(1, 1), groups=conv1.groups)
+    new_conv = Conv2D(x, concat, padding=new_conv_pad,
+                      **same_attrs(conv1, ['strides', 'dilation', 'groups']))
     split = Split(new_conv, indices_or_sections=2, axis=1)
 
     # Build substitution

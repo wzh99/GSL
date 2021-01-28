@@ -18,9 +18,11 @@ class Substitution:
         """
         Constructor.
 
-        :param src_pats: A single source pattern, or a list of source patterns.
-        :param tgt_pats: A single target pattern, or a list of target patterns. Order of patterns
-            in target pattern list must strictly follow the one in source pattern list.
+        :param src_pats: A single source pattern, or a list of source patterns. The patterns should
+            not be used as source nor target patterns of other substitutions.
+        :param tgt_pats: A single target pattern, or a list of target patterns. The patterns can
+            only be used in source patterns of current substitution. Number of target patterns must
+            exactly match source patterns, with i-th target pattern mapped to i-th source pattern.
         """
         # Convert source and target patterns to lists if necessary
         if isinstance(src_pats, Pattern):

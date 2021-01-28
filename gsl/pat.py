@@ -249,6 +249,19 @@ class Call(Pattern):
         return GetNodeAttr(self, name)
 
 
+def same_attrs(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
+    """
+    Create a attribute expression  dictionary with form a=p.a where a is attribute name from the
+    list, and p is a pattern node. This function is especially useful for specifying attribute
+    identity constraints between two nodes.
+
+    :param pat: The pattern node from which attributes are accessed.
+    :param attrs: List of attribute names.
+    :return: Attribute expression dictionary where eah=xh entry has the form a=p.a.
+    """
+    return dict([(a, pat.__getattr__(a)) for a in attrs])
+
+
 class Tup(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
