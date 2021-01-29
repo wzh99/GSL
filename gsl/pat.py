@@ -249,7 +249,7 @@ class Call(Pattern):
         return GetNodeAttr(self, name)
 
 
-def same_attrs(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
+def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
     """
     Create a attribute expression  dictionary with form a=p.a where a is attribute name from the
     list, and p is a pattern node. This function is especially useful for specifying attribute

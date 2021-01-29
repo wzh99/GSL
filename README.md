@@ -8,7 +8,7 @@ Deep learning compilers perform graph substitutions on computation graphs of mod
 
 Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/docs/dev/relay_intro.html) and can be used as an alternative to its [pattern language](https://tvm.apache.org/docs/langref/relay_pattern.html#pattern-language-design). It can be ported to other graph-level IRs because of their similarity. 
 
-## Features
+## Feature
 
 * **Declarative**. The language makes users focus on essence of graph substitutions. They don't need to care about details of substitution algorithm. 
 * **Simple**. The language makes full use of Python features to make it simple and concise.  Substitution rules can be defined and applied to the graph at any time, with only a few lines of code. 
@@ -40,13 +40,12 @@ w2 = Var(shape=w1.shape)
 
 # Source pattern: conv2d(x, w1) + conv2d(x, w2)
 conv1 = Conv2D(x, w1)
-conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding,
-               dilation=conv1.dilation, groups=conv1.groups)
+conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, dilation=conv1.dilation, 
+               groups=conv1.groups)
 y1 = conv1 + conv2
 
 # Target pattern: conv2d(x, w1 + w2)
-y2 = Conv2D(x, w1 + w2, strides=conv1.strides, padding=conv1.padding,
-            dilation=conv1.dilation, groups=conv1.groups)
+y2 = Conv2D(x, w1 + w2, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
 # Build substitution
 subst = Substitution(y1, y2)
@@ -56,9 +55,9 @@ At the very beginning, we import all the necessary classes and functions from pa
 
 First, we define all the input nodes, including wildcards (which matches any expression) and variables. The second kernel must have identical shape with the first, so we provide a keyword argument as an attribute constraint. The `shape` keyword on the left hand side is an attribute of variable `w2`. The right hand side is an attribute expression which gets attribute `shape` of `w1`.
 
-Second, we define source pattern graph. For the first convolution,  it has input nodes `x` and `w1`, so we just need to define `conv1 = Conv2D(x, w1)`. For the second convolution, it has input nodes `x` and `w2`, and should have identical strides, padding, dilation and groups with the `conv1`, so we specify constraints on these four attributes. The output is addition of the results of two convolutions, so we define `y1 = conv1 + conv2`. 
+Second, we define source pattern graph. For the first convolution,  it has input nodes `x` and `w1`, so we just need to define `conv1 = Conv2D(x, w1)`. For the second convolution, it has input nodes `x` and `w2`, and should have identical strides, padding, dilation and groups with `conv1`, so we define `conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, dilation=conv1.dilation, groups=conv1.groups)`. The output is addition of the results of two convolutions, so we define `y1 = conv1 + conv2`. 
 
-Then the target pattern, a single convolution. The kernel is addition of `w1` and `w2`. The target convolution must also have identical strides, padding, dilation and groups with either of the convolutions in source pattern. 
+Then the target pattern, which is a single convolution. The kernel is addition of `w1` and `w2`. The target convolution must also have identical strides, padding, dilation and groups with either of the convolutions in source pattern. Instead of writing the four equations which share the same form `p=a.p`, we provide `same_attr` shorthand to specify that the four attributes of `y2` are identical with the ones of `conv1`. 
 
 Finally, we build substitution with source and target patterns. The code is very straightforward. The `Substitution` class will perform semantics checking on the pattern. After checking, it can be applied to deep learning workloads. 
 
