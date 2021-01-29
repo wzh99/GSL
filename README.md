@@ -40,12 +40,13 @@ w2 = Var(shape=w1.shape)
 
 # Source pattern: conv2d(x, w1) + conv2d(x, w2)
 conv1 = Conv2D(x, w1)
-conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, dilation=conv1.dilation, 
-               groups=conv1.groups)
+conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, 
+               dilation=conv1.dilation, groups=conv1.groups)
 y1 = conv1 + conv2
 
 # Target pattern: conv2d(x, w1 + w2)
-y2 = Conv2D(x, w1 + w2, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+y2 = Conv2D(x, w1 + w2, 
+            **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
 # Build substitution
 subst = Substitution(y1, y2)
