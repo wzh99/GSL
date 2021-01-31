@@ -251,9 +251,9 @@ class Call(Pattern):
 
 def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
     """
-    Create a attribute expression  dictionary with form a=p.a where a is attribute name from the
-    list, and p is a pattern node. This function is especially useful for specifying attribute
-    identity constraints between two nodes.
+    Create a attribute expression dictionary with form `a=p.a` where `a` is attribute name from
+    the list, and `p` is a pattern node. This function is especially useful for specifying
+    attribute identity constraints between two nodes.
 
     :param pat: The pattern node from which attributes are accessed.
     :param attrs: List of attribute names.

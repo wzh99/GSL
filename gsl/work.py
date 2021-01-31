@@ -29,6 +29,7 @@ class Workload:
             _AlterDType(dtype),
             relay.transform.InferType()
         ])(mod)
+        self.dtype = dtype
         self.params = dict([(key, self._cvt_param(val)) for key, val in params.items()])
         self.name = name
         self.executor: Optional[relay.build_module.GraphExecutor] = None
@@ -58,16 +59,18 @@ class Workload:
         free_vars: List[relay.Var] = relay.analysis.free_vars(expr)
         main = relay.Function(free_vars, expr)
         mod = ir.IRModule(functions={'main': main})
+        wl = Workload(mod, {}, dtype=dtype, name=name)
 
         # Generate random parameters
         params: Dict[str, np.ndarray] = dict()
-        for v in free_vars:
+        for v in wl.mod['main'].params:
             if v.name_hint in input_names:  # skip input tensors
                 continue
-            shape: Tuple[int] = v.type_annotation.concrete_shape
-            params[v.name_hint] = np.random.rand(*shape)
+            shape = v.checked_type.concrete_shape
+            params[v.name_hint] = np.random.rand(*shape).astype(dtype)
+        wl.params = params
 
-        return Workload(mod, params, dtype=dtype, name=name)
+        return wl
 
     @staticmethod
     def from_keras(model, shape: Dict[str, Tuple[int, ...]], dtype: str = default_dtype):
@@ -143,6 +146,8 @@ class _VarDTypeMutator(relay.ExprMutator):
         return relay.Function(new_func.params, new_func.body)
 
     def visit_var(self, var: relay.Var):
+        if var.type_annotation is None:
+            return var
         new_ty = self.ty_mut.visit(var.type_annotation)
         return relay.Var(name_hint=var.name_hint, type_annotation=new_ty)
 

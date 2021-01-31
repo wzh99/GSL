@@ -4,7 +4,7 @@ import numpy as np
 from tvm import relay, transform, ir
 
 from . import util
-from .work import default_dtype, Workload
+from .work import Workload
 
 
 def fold(wl: Workload) -> Workload:
@@ -87,7 +87,7 @@ class _FoldMutator(relay.ExprMutator):
         values = []
         for a in args:
             if isinstance(a, relay.Constant):
-                values.append(np.array(a.data.asnumpy(), dtype=default_dtype))
+                values.append(np.array(a.data.asnumpy(), dtype=a.checked_type.dtype))
             elif isinstance(a, relay.Var) and a.name_hint in self.params:
                 values.append(self.params[a.name_hint])
             else:
