@@ -3,14 +3,19 @@ from typing import Optional
 from tensorflow import keras, Tensor
 from tensorflow.keras import layers, regularizers
 
-from .common import batch_shape_nhwc, bn_eps
+from .common import bn_eps, batch_size
 
-l2_reg = regularizers.l2(1e-4)
+input_shape_hwc = (32, 32, 3)
+input_shape_chw = (3, 32, 32)
+batch_shape_nhwc = (batch_size,) + input_shape_hwc
+batch_shape_nchw = (batch_size,) + input_shape_chw
 
 # NASNet-A 6 @ 768
 num_penult_filters = 768
 num_stem_filters = 96
 num_reduction = 2
+
+l2_reg = regularizers.l2(1e-4)
 
 
 # noinspection PyTypeChecker

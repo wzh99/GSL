@@ -298,9 +298,9 @@ class ModelTest(unittest.TestCase):
         print('ResNet')
 
         # Create model
-        import model
-        net = model.resnet.get_model(3)
-        wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
+        from model.resnet import get_model, batch_shape_nchw
+        net = get_model(3)
+        wl = Workload.from_keras(net, {'input_1': batch_shape_nchw})
 
         # Apply substitution
         subst = rule.conv_batch_norm()
@@ -312,9 +312,9 @@ class ModelTest(unittest.TestCase):
         print('NASNet')
 
         # Create model
-        import model
-        net = model.nasnet.get_model(1)
-        wl = Workload.from_keras(net, {'input_1': model.batch_shape_nchw})
+        from model.nasnet import get_model, batch_shape_nchw
+        net = get_model(1)
+        wl = Workload.from_keras(net, {'input_1': batch_shape_nchw})
         # x_in = np.random.rand(*model.batch_shape_nchw)
         # wl.build(target='metal')
         # y1 = wl(input_1=x_in)
@@ -331,6 +331,16 @@ class ModelTest(unittest.TestCase):
         wl.visualize()
         # wl.build(target='metal')
         # y2 = wl(input_1=x_in)
+        self.assertTrue(True)
+
+    def test_transformer(self):
+        print('Transformer')
+
+        # Create model
+        from model.transformer import get_workload
+        wl = get_workload(1, 64, 4, 128)
+        print(wl.mod)
+
         self.assertTrue(True)
 
 
@@ -351,5 +361,6 @@ if __name__ == '__main__':
         # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),
+        ModelTest('test_transformer')
     ])
     unittest.TextTestRunner().run(suite)
