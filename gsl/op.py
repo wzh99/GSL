@@ -88,6 +88,11 @@ class MatrixSetDiag(Call):
         }))
 
 
+class Dense(Call):
+    def __init__(self, data: PatternConvertible, weight: PatternConvertible):
+        super().__init__('nn.dense', data, weight)
+
+
 class Conv2D(Call):
     def __init__(self, data: PatternConvertible,
                  weight: PatternConvertible,

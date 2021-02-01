@@ -218,7 +218,7 @@ class _SubstFuncPass:
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
 
 
-SuccListDict = Dict[relay.Expr, List[relay.Expr]]
+SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
 class _ExprRewriter:
@@ -258,7 +258,7 @@ class _ExprRewriter:
             expr = _RewriteMutator(expr_map).visit(expr)
 
     def find_match(self, expr: relay.Expr, pat_to_expr: Dict[Pattern, relay.Expr],
-                   succ_list: SuccListDict) -> List[relay.Expr]:
+                   succ_list: SuccListMap) -> List[relay.Expr]:
         # Traverse the expression graph
         class StackElem:
             def __init__(self, e: relay.Expr, count: int):
@@ -309,7 +309,7 @@ class _ExprRewriter:
         return []
 
     def match_rest(self, pat_to_expr: Dict[Pattern, relay.Expr], fst_matched: relay.Expr,
-                   succ_map: Dict[relay.Expr, List[relay.Expr]]) -> List[relay.Expr]:
+                   succ_list: SuccListMap) -> List[relay.Expr]:
         output_matched = [fst_matched]
         for src_idx in range(len(self.src_pats)):
             # The first pattern is already matched
@@ -328,17 +328,20 @@ class _ExprRewriter:
             stack: List[Tuple[Pattern, relay.Expr]] = []
 
             def add_succ(pat: Pattern, expr: relay.Expr):
-                if expr not in succ_map:
+                if expr not in succ_list:
                     return
                 for ps in pat.succ:
-                    if ps in pat_to_expr or ps.src_idx != src_idx:
-                        continue
-                    for es in succ_map[expr]:
+                    if ps in pat_to_expr:
+                        continue  # successor pattern already matched
+                    if ps.src_idx != src_idx:
+                        continue  # not source or not the source pattern concerned
+                    for es in succ_list[expr]:
                         if es in expr_matched or es in self.history:
                             continue  # matched expression cannot be matched again
                         stack.append((ps, es))
-                        if not isinstance(pat, (Wildcard, Var)):
-                            # for non-inputs, only the first successor expression node could match
+                        if not isinstance(pat, Var):
+                            # for non-variables, only the first successor expression node could
+                            # match
                             break
                     break  # only need to visit first unmatched successor pattern node
 
@@ -375,26 +378,22 @@ class _ExprRewriter:
         return output_matched
 
     @staticmethod
-    def build_succ_list(expr: relay.Expr) -> SuccListDict:
+    def build_succ_list(expr: relay.Expr) -> SuccListMap:
         succ_visitor = _SuccListBuilder()
         succ_visitor.visit(expr)
         return succ_visitor.succ_list
 
     @staticmethod
-    def check_succ(pat_to_expr: Dict[Pattern, relay.Expr], succ_list: SuccListDict) -> bool:
+    def check_succ(pat_to_expr: Dict[Pattern, relay.Expr], succ_list: SuccListMap) -> bool:
         for p, e in pat_to_expr.items():
-            # Skip wildcard and variables because they serve as input nodes
-            if isinstance(p, (Wildcard, Var)):
-                continue
-
-            # Skip output nodes because they can be always be used by their successors
-            if p.is_output:
+            # Skip variables and output nodes because they can always be reused
+            if isinstance(p, Var) or p.is_output:
                 continue
 
             # From our matching algorithm, unmatched successor expression nodes could only be last
             # several elements of the expression's successor list. We just need to ensure the
-            # pattern and expression node has same number of successors.
-            if len(p.succ) != len(succ_list[e]):
+            # pattern node and expression node has same number of successors.
+            if len(p.src_succ) != len(succ_list[e]):
                 return False
 
         return True

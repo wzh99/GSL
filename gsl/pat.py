@@ -12,9 +12,11 @@ class Pattern:
     Base class for all pattern graph nodes. This class cannot be directly instantiated.
     """
 
+    NOT_IN_SRC = -1
+
     def __init__(self):
         self.succ: List[Pattern] = []
-        self.src_idx = -1
+        self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
 
     @property
@@ -26,11 +28,15 @@ class Pattern:
         return len(self.succ) == 0
 
     @property
-    def in_src(self):
-        return self.src_idx != -1
+    def in_src(self) -> bool:
+        return self.src_idx != self.NOT_IN_SRC
 
     @property
-    def is_used(self):
+    def src_succ(self):
+        return list(filter(lambda p: p.in_src, self.succ))
+
+    @property
+    def is_used(self) -> bool:
         return self.in_src or self.in_tgt
 
     # Shared attributes
