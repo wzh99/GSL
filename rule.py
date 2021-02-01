@@ -255,3 +255,21 @@ def parallel_conv_expand_kernels():
 
     # Build substitution
     return Substitution([conv1, conv2], [split[0], split[1]])
+
+
+def parallel_dense():
+    # Input
+    x = Wildcard()
+    w1 = Var()
+    w2 = Var()
+
+    # Source pattern
+    dense1 = Dense(x, w1)
+    dense2 = Dense(x, w2)
+
+    # Target pattern
+    dense = Dense(x, Concatenate((w1, w2), axis=0))
+    split = Split(dense, indices_or_sections=(w1.shape[0],), axis=-1)
+
+    # Build substitution
+    return Substitution([dense1, dense2], [split[0], split[1]])
