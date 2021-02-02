@@ -92,7 +92,7 @@ class GetItemAttr(Attr):
 AttrConvertible = Union[Attr, AttrValueType, tuple, list, None]
 
 
-def to_attr(val: Union[Attr, AttrValueType, tuple, list, None]) -> Attr:
+def to_attr(val: AttrConvertible) -> Attr:
     """
     Create an attribute expression with given value.
 
