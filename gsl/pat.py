@@ -263,7 +263,7 @@ def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
 
     :param pat: The pattern node from which attributes are accessed.
     :param attrs: List of attribute names.
-    :return: Attribute expression dictionary where eah=xh entry has the form a=p.a.
+    :return: Attribute expression dictionary where each entry has form a=p.a.
     """
     return dict([(a, pat.__getattr__(a)) for a in attrs])
 
