@@ -1,7 +1,8 @@
 from enum import Enum
-from typing import Union, Any, Dict, Tuple, Type, Callable, Generic, TypeVar
+from typing import Union, Any, Dict, Tuple, Type, Callable, Generic, TypeVar, Optional
 
-AttrValueType = Union[bool, int, float, str]
+AttrPrimType = Union[bool, int, float, str]
+AttrValueType = Union[AttrPrimType, tuple, list]
 
 
 class Attr:
@@ -44,7 +45,7 @@ class Attr:
         return BinaryAttr(BinaryOp.MIN, self, to_attr(other))
 
 
-AttrConvertible = Union[Attr, AttrValueType, tuple, list, None]
+AttrConvertible = Union[Attr, AttrValueType, None]
 
 
 class AnyAttr(Attr):
@@ -59,7 +60,7 @@ class ConstAttr(Attr):
     A compile-time constant attribute value.
     """
 
-    def __init__(self, value: AttrValueType):
+    def __init__(self, value: AttrPrimType):
         self.value = value
 
 
@@ -79,7 +80,7 @@ class TupleAttr(Attr):
     """
 
     def __init__(self, *fields):
-        self.fields = tuple([to_attr(e) for e in fields])
+        self.fields = [to_attr(e) for e in fields]
 
 
 class GetItemAttr(Attr):
@@ -154,6 +155,40 @@ class BinaryAttr(Attr):
     }
 
 
+class Symbol(Attr):
+    """
+    A language symbol which can be mapped to attribute value.
+    """
+    pass
+
+
+class Env:
+    """
+    Environment, mapping from symbol to attribute value.
+    """
+
+    def __init__(self, prev=None, symbol: Optional[Symbol] = None,
+                 value: Optional[AttrValueType] = None):
+        self.prev: Optional[Env] = prev
+        self.symbol = symbol
+        self.value = value
+
+    def __add__(self, pair: Tuple[Symbol, AttrValueType]):
+        return Env(prev=self, symbol=pair[0], value=pair[1])
+
+    def __getitem__(self, sym: Symbol) -> Optional[AttrValueType]:
+        env = self
+        while env.symbol is not None:
+            if env.symbol is sym:
+                return env.value
+            else:
+                env = env.prev
+        return None
+
+    def __contains__(self, sym: Symbol) -> bool:
+        return self[sym] is not None
+
+
 ArgType = TypeVar('ArgType')
 
 
@@ -171,6 +206,8 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_getitem(attr, arg)
         elif isinstance(attr, BinaryAttr):
             return self.visit_binary(attr, arg)
+        elif isinstance(attr, Symbol):
+            return self.visit_symbol(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
@@ -192,4 +229,7 @@ class AttrVisitor(Generic[ArgType]):
         self.visit(getitem.index, arg)
 
     def visit_binary(self, binary: BinaryAttr, arg: ArgType) -> Any:
+        pass
+
+    def visit_symbol(self, sym: Symbol, arg: ArgType) -> Any:
         pass

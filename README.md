@@ -1,6 +1,6 @@
 # GSL
 
-GSL (pronounced Gie-sel) is a declarative domain-specific language, embedded in Python, for defining graph substitution rules in deep learning compilers. 
+GSL (pronounced Gie-sel, acronym for Graph Substitution Language) is a declarative domain-specific language, embedded in Python, for defining graph substitution rules in deep learning compilers. 
 
 ## Introduction
 

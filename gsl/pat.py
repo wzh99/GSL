@@ -47,7 +47,7 @@ class Pattern:
             raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
         return GetNodeAttr(self, name)
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: AttrConvertible):
         return GetItem(self, index)
 
     def __neg__(self):
