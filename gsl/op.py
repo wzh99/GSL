@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, Union, Tuple, Dict, Any
 
-from .pat import *
+from .pat import PatternConvertible, Attr, Call, Tup
 
 
 class Abs(Call):
