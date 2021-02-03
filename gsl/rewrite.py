@@ -5,6 +5,7 @@ from tvm import relay, ir
 from . import util
 from .pat import *
 
+PatExprMap = Dict[Pattern, relay.Expr]
 SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
@@ -25,9 +26,12 @@ class ExprRewriter:
             succ_list = self.build_succ_list(expr)
 
             # Find matched expressions with patterns
-            pat_to_expr: Dict[Pattern, relay.Expr] = dict()
-            src_matched = self.find_match(expr, pat_to_expr, succ_list)
-            if len(src_matched) == 0:  # even a single match is not found
+            pat_to_expr: PatExprMap = dict()
+            fst_matched = self.match_one(self.src_pats[0], expr, pat_to_expr)
+            if fst_matched is None:
+                return expr  # even the first output pattern node is not matched
+            src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
+            if len(src_matched) == 0:  # the rest output nodes fail to match
                 return expr
 
             # Add source patterns to match history
@@ -44,8 +48,8 @@ class ExprRewriter:
             # Rewrite expression
             expr = _RewriteMutator(expr_map).visit(expr)
 
-    def find_match(self, expr: relay.Expr, pat_to_expr: Dict[Pattern, relay.Expr],
-                   succ_list: SuccListMap) -> List[relay.Expr]:
+    def match_one(self, pat: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
+            -> Optional[relay.Expr]:
         # Traverse the expression graph
         class StackElem:
             def __init__(self, e: relay.Expr, count: int):
@@ -78,24 +82,17 @@ class ExprRewriter:
 
                 # Use first pattern to roughly locate the subgraph
                 matcher = _ExprMatcher(pat_to_expr.copy())
-                res = matcher.match(self.src_pats[0], cur_expr, Env())
+                res = matcher.match(pat, cur_expr, Env())
                 if not res:
                     continue  # even first pattern is not matched, skip this expression
-                if len(self.src_pats) == 1:
-                    pat_to_expr.update(matcher.pat_to_expr)
-                    return [cur_expr]  # work is done for single pattern
+                pat_to_expr.update(matcher.pat_to_expr)
+                return cur_expr
 
-                # Match rest of the patterns
-                tmp_pat_to_expr = matcher.pat_to_expr
-                src_matched = self.match_rest(tmp_pat_to_expr, cur_expr, succ_list)
-                if len(src_matched) == 0:
-                    continue  # the rest patterns do not match, skip this expression
-                pat_to_expr.update(tmp_pat_to_expr)
-                return src_matched
+        return None
 
-        return []
+    reusable_node = (Wildcard, Var)
 
-    def match_rest(self, pat_to_expr: Dict[Pattern, relay.Expr], fst_matched: relay.Expr,
+    def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:
         output_matched = [fst_matched]
         for src_idx in range(1, len(self.src_pats)):
@@ -122,9 +119,9 @@ class ExprRewriter:
                         if es in expr_matched or es in self.history:
                             continue  # matched expression cannot be matched again
                         stack.append((ps, es))
-                        if not isinstance(pat, Var):
-                            # for non-variables, only the first successor expression node could
-                            # match
+                        if not isinstance(pat, self.reusable_node):
+                            # for non-reusable nodes, only the first successor expression node
+                            # could match
                             break
                     break  # only need to visit first unmatched successor pattern node
 
@@ -166,11 +163,11 @@ class ExprRewriter:
         succ_visitor.visit(expr)
         return succ_visitor.succ_list
 
-    @staticmethod
-    def check_succ(pat_to_expr: Dict[Pattern, relay.Expr], succ_list: SuccListMap) -> bool:
+    @classmethod
+    def check_succ(cls, pat_to_expr: PatExprMap, succ_list: SuccListMap) -> bool:
         for p, e in pat_to_expr.items():
-            # Skip variables and output nodes because they can always be reused
-            if isinstance(p, Var) or p.is_output:
+            # Skip variables, wildcards and output nodes because they can always be reused
+            if isinstance(p, cls.reusable_node) or p.is_output:
                 continue
 
             # From our matching algorithm, unmatched successor expression nodes could only be last
@@ -209,7 +206,7 @@ class _SuccListBuilder(relay.ExprVisitor):
 
 
 class _RelayBuilder(PatternVisitor[Env]):
-    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
+    def __init__(self, pat_to_expr: PatExprMap):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
@@ -326,7 +323,7 @@ class _SinglePatRewriter(relay.ExprMutator):
         self.memo_map[expr] = new_expr
 
         # Match pattern with this expression
-        pat_to_expr: Dict[Pattern, relay.Expr] = {}
+        pat_to_expr: PatExprMap = {}
         matcher = _ExprMatcher(pat_to_expr)
         if not matcher.match(self.src_pat, new_expr, Env()):
             return new_expr
@@ -338,7 +335,7 @@ class _SinglePatRewriter(relay.ExprMutator):
 
 
 class _ExprMatcher:
-    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
+    def __init__(self, pat_to_expr: PatExprMap):
         self.pat_to_expr = pat_to_expr
         self.expr_matched = set(pat_to_expr.values())
 
@@ -489,7 +486,7 @@ class _ExprMatcher:
 
 
 class _AttrEvaluator(AttrVisitor[Env]):
-    def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
+    def __init__(self, pat_to_expr: PatExprMap):
         self.pat_to_expr = pat_to_expr
 
     @staticmethod

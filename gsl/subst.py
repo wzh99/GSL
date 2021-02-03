@@ -4,8 +4,8 @@ from typing import Set
 from tvm import relay, transform, ir
 
 from . import fold
-from .rewrite import ExprRewriter
 from .pat import *
+from .rewrite import ExprRewriter
 from .work import Workload
 
 

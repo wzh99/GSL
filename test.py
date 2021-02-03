@@ -321,8 +321,11 @@ class ModelTest(unittest.TestCase):
         wl = Workload.from_keras(net, {'input_1': batch_shape_nchw})
 
         # Apply substitution
-        subst = rule.conv_batch_norm()
-        wl = subst(wl, new_name=wl.name + '_subst')
+        for subst in [
+            rule.simplify_batch_norm(),
+            rule.conv_mul()
+        ]:
+            wl = subst(wl)
         wl.visualize()
         self.assertTrue(True)
 
@@ -333,6 +336,7 @@ class ModelTest(unittest.TestCase):
         from model.nasnet import get_model, batch_shape_nchw
         net = get_model(1)
         wl = Workload.from_keras(net, {'input_1': batch_shape_nchw})
+        # import numpy as np
         # x_in = np.random.rand(*batch_shape_nchw)
         # wl.build(target='metal')
         # y1 = wl(input_1=x_in)
