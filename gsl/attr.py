@@ -10,8 +10,8 @@ class Attr:
     """
     value_class = (bool, int, float, str)
 
-    def __getitem__(self, index: int):
-        return GetItemAttr(self, index)
+    def __getitem__(self, index):
+        return GetItemAttr(self, to_attr(index))
 
     def __add__(self, other):
         return BinaryAttr(BinaryOp.ADD, self, to_attr(other))
@@ -42,6 +42,9 @@ class Attr:
 
     def min(self, other):
         return BinaryAttr(BinaryOp.MIN, self, to_attr(other))
+
+
+AttrConvertible = Union[Attr, AttrValueType, tuple, list, None]
 
 
 class AnyAttr(Attr):
@@ -84,12 +87,9 @@ class GetItemAttr(Attr):
     Get item from a tuple attribute with given index.
     """
 
-    def __init__(self, seq: Attr, index: int):
+    def __init__(self, seq: Attr, index: Attr):
         self.seq = seq
         self.index = index
-
-
-AttrConvertible = Union[Attr, AttrValueType, tuple, list, None]
 
 
 def to_attr(val: AttrConvertible) -> Attr:
@@ -186,6 +186,7 @@ class AttrVisitor:
 
     def visit_getitem(self, getitem: GetItemAttr) -> Any:
         self.visit(getitem.seq)
+        self.visit(getitem.index)
 
     def visit_binary(self, binary: BinaryAttr) -> Any:
         pass

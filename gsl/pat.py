@@ -281,10 +281,10 @@ class Tup(Pattern):
 
 
 class GetItem(Pattern):
-    def __init__(self, tup: Pattern, index: int):
+    def __init__(self, tup: Pattern, index: AttrConvertible):
         super().__init__()
         self.tup = tup
-        self.index = index
+        self.index: Attr = to_attr(index)
         tup.succ.append(self)
 
     @property

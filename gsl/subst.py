@@ -473,7 +473,9 @@ class _RelayBuilder(PatternVisitor):
         return relay.Tuple([self.visit(f) for f in tup.fields])
 
     def visit_getitem(self, getitem: GetItem) -> Any:
-        return self.visit(getitem.tup)[getitem.index]
+        tup = self.visit(getitem.tup)
+        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index)
+        return tup[idx]
 
 
 class _RewriteMutator(relay.ExprMutator):
@@ -693,7 +695,10 @@ class _ExprMatcher:
     def match_getitem(self, getitem: GetItem, expr: relay.Expr) -> bool:
         if not isinstance(expr, relay.TupleGetItem):
             return False
-        return getitem.index == expr.index and self.match(getitem.tup, expr.tuple_value)
+        if not self.match(getitem.tup, expr.tuple_value):
+            return False
+        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index)
+        return idx == expr.index
 
 
 class _AttrEvaluator(AttrVisitor):
@@ -742,7 +747,7 @@ class _AttrEvaluator(AttrVisitor):
         return tuple([self.visit(f) for f in tup_attr.fields])
 
     def visit_getitem(self, getitem: GetItemAttr):
-        return self.visit(getitem.seq)[getitem.index]
+        return self.visit(getitem.seq)[self.visit(getitem.index)]
 
     def visit_binary(self, binary: BinaryAttr):
         lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
