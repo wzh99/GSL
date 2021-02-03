@@ -88,7 +88,7 @@ class Pattern:
         """
         from graphviz import Digraph
         graph = Digraph(name=name)
-        _Visualizer(graph, fontname=font_name, **attrs).visit(self)
+        _Visualizer(graph, fontname=font_name, **attrs).visit(self, None)
         graph.view(directory=path)
 
 
@@ -292,58 +292,58 @@ class GetItem(Pattern):
         return [self.tup]
 
 
-class PatternVisitor:
+class PatternVisitor(Generic[ArgType]):
     def __init__(self):
         self.visited: Dict[Pattern, Any] = dict()
 
-    def visit(self, node: Pattern):
+    def visit(self, node: Pattern, arg: ArgType):
         if node in self.visited:
             return self.visited[node]
         if isinstance(node, Wildcard):
-            ret = self.visit_wildcard(node)
+            ret = self.visit_wildcard(node, arg)
         elif isinstance(node, Var):
-            ret = self.visit_var(node)
+            ret = self.visit_var(node, arg)
         elif isinstance(node, Const):
-            ret = self.visit_const(node)
+            ret = self.visit_const(node, arg)
         elif isinstance(node, Call):
-            ret = self.visit_call(node)
+            ret = self.visit_call(node, arg)
         elif isinstance(node, Op):
-            ret = self.visit_op(node)
+            ret = self.visit_op(node, arg)
         elif isinstance(node, Tup):
-            ret = self.visit_tuple(node)
+            ret = self.visit_tuple(node, arg)
         elif isinstance(node, GetItem):
-            ret = self.visit_getitem(node)
+            ret = self.visit_getitem(node, arg)
         else:
             raise RuntimeError('Unknown node type.')
         self.visited[node] = ret
         return ret
 
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+    def visit_wildcard(self, wildcard: Wildcard, arg: ArgType) -> Any:
         pass
 
-    def visit_var(self, var: Var) -> Any:
+    def visit_var(self, var: Var, arg: ArgType) -> Any:
         pass
 
-    def visit_const(self, const: Const) -> Any:
+    def visit_const(self, const: Const, arg: ArgType) -> Any:
         pass
 
-    def visit_call(self, call: Call) -> Any:
-        self.visit(call.op)
+    def visit_call(self, call: Call, arg: ArgType) -> Any:
+        self.visit(call.op, arg)
         for arg in call.args:
-            self.visit(arg)
+            self.visit(arg, arg)
 
-    def visit_op(self, op: Op) -> Any:
+    def visit_op(self, op: Op, arg: ArgType) -> Any:
         pass
 
-    def visit_tuple(self, tup: Tup) -> Any:
+    def visit_tuple(self, tup: Tup, arg: ArgType) -> Any:
         for f in tup.fields:
-            self.visit(f)
+            self.visit(f, arg)
 
-    def visit_getitem(self, getitem: GetItem) -> Any:
-        self.visit(getitem.tup)
+    def visit_getitem(self, getitem: GetItem, arg: ArgType) -> Any:
+        self.visit(getitem.tup, arg)
 
 
-class _Visualizer(PatternVisitor):
+class _Visualizer(PatternVisitor[None]):
     def __init__(self, graph, **attrs):
         super().__init__()
         from graphviz import Digraph
@@ -351,39 +351,39 @@ class _Visualizer(PatternVisitor):
         self.attrs = attrs
         self.counter = 0
 
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+    def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='*', **self.attrs)
         return node_id
 
-    def visit_var(self, var: Var) -> Any:
+    def visit_var(self, var: Var, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='Var', **self.attrs)
         return node_id
 
-    def visit_const(self, const: Const) -> Any:
+    def visit_const(self, const: Const, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='Const', **self.attrs)
         return node_id
 
-    def visit_call(self, call: Call) -> Any:
+    def visit_call(self, call: Call, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label=str(call.op), **self.attrs)
         for a in call.args:
-            self.graph.edge(self.visit(a), node_id)
+            self.graph.edge(self.visit(a, arg), node_id)
         return node_id
 
-    def visit_tuple(self, tup: Tup) -> Any:
+    def visit_tuple(self, tup: Tup, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='(,)', **self.attrs)
         for f in tup.fields:
-            self.graph.edge(self.visit(f), node_id)
+            self.graph.edge(self.visit(f, arg), node_id)
         return node_id
 
-    def visit_getitem(self, getitem: GetItem) -> Any:
+    def visit_getitem(self, getitem: GetItem, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='.{}'.format(getitem.index), **self.attrs)
-        self.graph.edge(self.visit(getitem.tup), node_id)
+        self.graph.edge(self.visit(getitem.tup, arg), node_id)
         return node_id
 
     def _next_id(self) -> str:

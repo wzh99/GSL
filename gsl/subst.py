@@ -46,7 +46,7 @@ class Substitution:
 
             # Check pattern graph
             src_checker = _SrcPatChecker(src_nodes, i)
-            src_checker.visit(src)
+            src_checker.visit(src, None)
 
             # Check if it is connected to the whole subgraph
             cur_visited = set(src_checker.visited.keys())
@@ -62,7 +62,7 @@ class Substitution:
         # Check target patterns
         tgt_checker = _TgtPatChecker(src_nodes)
         for tgt in tgt_pats:
-            tgt_checker.visit(tgt)
+            tgt_checker.visit(tgt, None)
 
         # Store source and target patterns
         self.src_pats = src_pats
@@ -95,7 +95,7 @@ class Substitution:
         return new_wl
 
 
-class _SrcPatChecker(PatternVisitor):
+class _SrcPatChecker(PatternVisitor[None]):
     def __init__(self, prev_visited: Set[Pattern], idx: int):
         super().__init__()
         self.prev_visited = prev_visited
@@ -105,22 +105,22 @@ class _SrcPatChecker(PatternVisitor):
     def has_visited(self, node: Pattern):
         return node in self.visited or node in self.prev_visited
 
-    def visit(self, node: Pattern):
+    def visit(self, node: Pattern, arg: None):
         if (not self.has_visited(node)) and node.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
             )
-        super().visit(node)
+        super().visit(node, arg)
         node.src_idx = self.idx
 
-    def visit_const(self, const: Const) -> Any:
+    def visit_const(self, const: Const, arg: None) -> Any:
         if isinstance(const.value, Attr):
             raise TypeError(
                 'Constant node in source graph cannot store an attribute expression.'
             )
 
-    def visit_call(self, call: Call) -> Any:
-        super().visit_call(call)
+    def visit_call(self, call: Call, arg: None) -> Any:
+        super().visit_call(call, arg)
 
         # Check if all attribute expressions only contain reference to visited nodes
         for a in call.attrs.values():
@@ -144,36 +144,36 @@ class _TgtPatChecker(PatternVisitor):
         self.src_nodes = src_nodes
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
-    def visit(self, node: Pattern):
+    def visit(self, node: Pattern, arg: None):
         if not (node in self.visited or node in self.src_nodes) \
                 and node.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
-        super().visit(node)
+        super().visit(node, arg)
         node.in_tgt = True
 
-    def visit_wildcard(self, wildcard: Wildcard) -> Any:
+    def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Any:
         if wildcard not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
-    def visit_var(self, var: Var) -> Any:
+    def visit_var(self, var: Var, arg: None) -> Any:
         if var not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
 
-    def visit_const(self, const: Const) -> Any:
+    def visit_const(self, const: Const, arg: None) -> Any:
         if const.value is None:
             raise ValueError(
                 'Constant node in target pattern must contain a value.'
             )
 
-    def visit_call(self, call: Call) -> Any:
+    def visit_call(self, call: Call, arg: None) -> Any:
         # Visit arguments
-        super().visit_call(call)
+        super().visit_call(call, arg)
 
         # Check if all non-default attributes are provided for concrete op
         if isinstance(call.op, ConcreteOp):
@@ -251,7 +251,7 @@ class _ExprRewriter:
                 continue
 
             # Generate target expressions and map source to them
-            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt) for tgt in self.tgt_pats]
+            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, None) for tgt in self.tgt_pats]
             expr_map = dict(zip(src_matched, tgt_expr))
 
             # Rewrite expression
@@ -425,20 +425,20 @@ class _SuccListBuilder(relay.ExprVisitor):
             self.succ_list[pred] = [succ]
 
 
-class _RelayBuilder(PatternVisitor):
+class _RelayBuilder(PatternVisitor[None]):
     def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
-    def visit(self, node: Pattern):
+    def visit(self, node: Pattern, arg: None):
         if node in self.pat_to_expr:
             return self.pat_to_expr[node]
         else:
-            expr = super().visit(node)
+            expr = super().visit(node, arg)
             self.pat_to_expr[node] = expr
             return expr
 
-    def visit_const(self, const: Const) -> Any:
+    def visit_const(self, const: Const, arg: None) -> Any:
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
@@ -447,11 +447,11 @@ class _RelayBuilder(PatternVisitor):
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
-    def visit_call(self, call: Call) -> Any:
-        args = [self.visit(a) for a in call.args]
+    def visit_call(self, call: Call, arg: None) -> Any:
+        args = [self.visit(a, arg) for a in call.args]
         attrs = dict([(name, _AttrEvaluator(self.pat_to_expr).visit(attr, None))
                       for name, attr in call.attrs.items()])
-        op_name = self.visit_op(call.op)
+        op_name = self.visit_op(call.op, arg)
         func = spec.get_func(op_name)
         try:
             call_expr = func(*args, **attrs)
@@ -461,7 +461,7 @@ class _RelayBuilder(PatternVisitor):
                 'set {}.'.format(op_name, len(args), attrs))
         return call_expr
 
-    def visit_op(self, op: Op) -> Any:
+    def visit_op(self, op: Op, arg: None) -> Any:
         if isinstance(op, ConcreteOp):
             return op.name
         elif isinstance(op, OpWithFlag):
@@ -469,11 +469,11 @@ class _RelayBuilder(PatternVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup: Tup) -> Any:
-        return relay.Tuple([self.visit(f) for f in tup.fields])
+    def visit_tuple(self, tup: Tup, arg: None) -> Any:
+        return relay.Tuple([self.visit(f, arg) for f in tup.fields])
 
-    def visit_getitem(self, getitem: GetItem) -> Any:
-        tup = self.visit(getitem.tup)
+    def visit_getitem(self, getitem: GetItem, arg: None) -> Any:
+        tup = self.visit(getitem.tup, arg)
         idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, None)
         return tup[idx]
 
@@ -549,7 +549,7 @@ class _SinglePatRewriter(relay.ExprMutator):
             return new_expr
 
         # Build new expression
-        new_expr = _RelayBuilder(pat_to_expr).visit(self.tgt_pat)
+        new_expr = _RelayBuilder(pat_to_expr).visit(self.tgt_pat, None)
         self.memo_map[expr] = new_expr
         return new_expr
 
@@ -701,7 +701,7 @@ class _ExprMatcher:
         return idx == expr.index
 
 
-class _AttrEvaluator(AttrVisitor):
+class _AttrEvaluator(AttrVisitor[None]):
     def __init__(self, pat_to_expr: Dict[Pattern, relay.Expr]):
         self.pat_to_expr = pat_to_expr
 
@@ -719,13 +719,13 @@ class _AttrEvaluator(AttrVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_any(self, a: AnyAttr, *args):
+    def visit_any(self, a: AnyAttr, arg: None):
         return None
 
-    def visit_const(self, const: ConstAttr, *args):
+    def visit_const(self, const: ConstAttr, arg: None):
         return const.value
 
-    def visit_get_node(self, get_node: GetNodeAttr, *args):
+    def visit_get_node(self, get_node: GetNodeAttr, arg: None):
         # Get actual expression from map
         node = get_node.node
         name = get_node.name
@@ -743,14 +743,14 @@ class _AttrEvaluator(AttrVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup_attr: TupleAttr, *args):
-        return tuple([self.visit(f, None) for f in tup_attr.fields])
+    def visit_tuple(self, tup_attr: TupleAttr, arg: None):
+        return tuple([self.visit(f, arg) for f in tup_attr.fields])
 
-    def visit_getitem(self, getitem: GetItemAttr, *args):
-        return self.visit(getitem.seq, None)[self.visit(getitem.index, None)]
+    def visit_getitem(self, getitem: GetItemAttr, arg: None):
+        return self.visit(getitem.seq, arg)[self.visit(getitem.index, arg)]
 
-    def visit_binary(self, binary: BinaryAttr, *args):
-        lv, rv = self.visit(binary.lhs, None), self.visit(binary.rhs, None)
+    def visit_binary(self, binary: BinaryAttr, arg: None):
+        lv, rv = self.visit(binary.lhs, arg), self.visit(binary.rhs, arg)
         ty_tup = (lv.__class__, rv.__class__)
         bin_op = binary.op
         op_func = BinaryAttr.eval_func[bin_op]

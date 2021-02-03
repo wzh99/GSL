@@ -3,8 +3,8 @@ import unittest
 from tvm import relay
 
 import rule
-from gsl import Workload, Substitution
-from gsl.pat import *
+from gsl import Workload, Substitution, Wildcard
+from gsl.pat import Call
 
 
 class MatchTest(unittest.TestCase):
