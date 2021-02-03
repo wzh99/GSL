@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Union, Any, Dict, Tuple, Type, Callable
+from typing import Union, Any, Dict, Tuple, Type, Callable, Generic, TypeVar
 
 AttrValueType = Union[bool, int, float, str]
 
@@ -154,39 +154,42 @@ class BinaryAttr(Attr):
     }
 
 
-class AttrVisitor:
-    def visit(self, attr: Attr) -> Any:
+ArgType = TypeVar('ArgType')
+
+
+class AttrVisitor(Generic[ArgType]):
+    def visit(self, attr: Attr, arg: ArgType) -> Any:
         if isinstance(attr, AnyAttr):
-            return self.visit_any(attr)
+            return self.visit_any(attr, arg)
         elif isinstance(attr, ConstAttr):
-            return self.visit_const(attr)
+            return self.visit_const(attr, arg)
         elif isinstance(attr, GetNodeAttr):
-            return self.visit_get_node(attr)
+            return self.visit_get_node(attr, arg)
         elif isinstance(attr, TupleAttr):
-            return self.visit_tuple(attr)
+            return self.visit_tuple(attr, arg)
         elif isinstance(attr, GetItemAttr):
-            return self.visit_getitem(attr)
+            return self.visit_getitem(attr, arg)
         elif isinstance(attr, BinaryAttr):
-            return self.visit_binary(attr)
+            return self.visit_binary(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
-    def visit_any(self, a: AnyAttr) -> Any:
+    def visit_any(self, a: AnyAttr, arg: ArgType) -> Any:
         pass
 
-    def visit_const(self, const: ConstAttr) -> Any:
+    def visit_const(self, const: ConstAttr, arg: ArgType) -> Any:
         pass
 
-    def visit_get_node(self, get_node: GetNodeAttr) -> Any:
+    def visit_get_node(self, get_node: GetNodeAttr, arg: ArgType) -> Any:
         pass
 
-    def visit_tuple(self, tup_attr: TupleAttr) -> Any:
+    def visit_tuple(self, tup_attr: TupleAttr, arg: ArgType) -> Any:
         for f in tup_attr.fields:
-            self.visit(f)
+            self.visit(f, arg)
 
-    def visit_getitem(self, getitem: GetItemAttr) -> Any:
-        self.visit(getitem.seq)
-        self.visit(getitem.index)
+    def visit_getitem(self, getitem: GetItemAttr, arg: ArgType) -> Any:
+        self.visit(getitem.seq, arg)
+        self.visit(getitem.index, arg)
 
-    def visit_binary(self, binary: BinaryAttr) -> Any:
+    def visit_binary(self, binary: BinaryAttr, arg: ArgType) -> Any:
         pass

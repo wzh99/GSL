@@ -124,14 +124,14 @@ class _SrcPatChecker(PatternVisitor):
 
         # Check if all attribute expressions only contain reference to visited nodes
         for a in call.attrs.values():
-            self.attr_checker.visit(a)
+            self.attr_checker.visit(a, None)
 
 
-class _SrcAttrChecker(AttrVisitor):
+class _SrcAttrChecker(AttrVisitor[None]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
-    def visit_get_node(self, get_node: GetNodeAttr):
+    def visit_get_node(self, get_node: GetNodeAttr, arg: None):
         if not self.checker.has_visited(get_node.node):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
@@ -191,14 +191,14 @@ class _TgtPatChecker(PatternVisitor):
 
         # Check if all attribute expressions only contain reference to nodes in source graph
         for a in call.attrs.values():
-            self.attr_checker.visit(a)
+            self.attr_checker.visit(a, None)
 
 
-class _TgtAttrChecker(AttrVisitor):
+class _TgtAttrChecker(AttrVisitor[None]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
-    def visit_get_node(self, get_node: GetNodeAttr):
+    def visit_get_node(self, get_node: GetNodeAttr, arg: None):
         if get_node.node not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
@@ -442,14 +442,14 @@ class _RelayBuilder(PatternVisitor):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
-            value = _AttrEvaluator(self.pat_to_expr).visit(const.value)
+            value = _AttrEvaluator(self.pat_to_expr).visit(const.value, None)
         else:
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: Call) -> Any:
         args = [self.visit(a) for a in call.args]
-        attrs = dict([(name, _AttrEvaluator(self.pat_to_expr).visit(attr))
+        attrs = dict([(name, _AttrEvaluator(self.pat_to_expr).visit(attr, None))
                       for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op)
         func = spec.get_func(op_name)
@@ -474,7 +474,7 @@ class _RelayBuilder(PatternVisitor):
 
     def visit_getitem(self, getitem: GetItem) -> Any:
         tup = self.visit(getitem.tup)
-        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index)
+        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, None)
         return tup[idx]
 
 
@@ -655,7 +655,7 @@ class _ExprMatcher:
             raise RuntimeError('Unreachable.')
 
     def _match_attr(self, pat_attr: Attr, expr_attr) -> bool:
-        pat_val = _AttrEvaluator(self.pat_to_expr).visit(pat_attr)
+        pat_val = _AttrEvaluator(self.pat_to_expr).visit(pat_attr, None)
         pat_val = util.cvt_ir_value(pat_val)
         expr_val = util.cvt_ir_value(expr_attr)
         return self._match_val(pat_val, expr_val)
@@ -697,7 +697,7 @@ class _ExprMatcher:
             return False
         if not self.match(getitem.tup, expr.tuple_value):
             return False
-        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index)
+        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, None)
         return idx == expr.index
 
 
@@ -719,13 +719,13 @@ class _AttrEvaluator(AttrVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_any(self, a: AnyAttr):
+    def visit_any(self, a: AnyAttr, *args):
         return None
 
-    def visit_const(self, const: ConstAttr):
+    def visit_const(self, const: ConstAttr, *args):
         return const.value
 
-    def visit_get_node(self, get_node: GetNodeAttr):
+    def visit_get_node(self, get_node: GetNodeAttr, *args):
         # Get actual expression from map
         node = get_node.node
         name = get_node.name
@@ -743,14 +743,14 @@ class _AttrEvaluator(AttrVisitor):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup_attr: TupleAttr):
-        return tuple([self.visit(f) for f in tup_attr.fields])
+    def visit_tuple(self, tup_attr: TupleAttr, *args):
+        return tuple([self.visit(f, None) for f in tup_attr.fields])
 
-    def visit_getitem(self, getitem: GetItemAttr):
-        return self.visit(getitem.seq)[self.visit(getitem.index)]
+    def visit_getitem(self, getitem: GetItemAttr, *args):
+        return self.visit(getitem.seq, None)[self.visit(getitem.index, None)]
 
-    def visit_binary(self, binary: BinaryAttr):
-        lv, rv = self.visit(binary.lhs), self.visit(binary.rhs)
+    def visit_binary(self, binary: BinaryAttr, *args):
+        lv, rv = self.visit(binary.lhs, None), self.visit(binary.rhs, None)
         ty_tup = (lv.__class__, rv.__class__)
         bin_op = binary.op
         op_func = BinaryAttr.eval_func[bin_op]
