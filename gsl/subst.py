@@ -47,7 +47,7 @@ class Substitution:
 
             # Check pattern graph
             src_checker = _SrcPatChecker(src_nodes, i)
-            src_checker.visit(src, None)
+            src_checker.visit(src, Env())
 
             # Check if it is connected to the whole subgraph
             cur_visited = set(src_checker.visited.keys())
@@ -63,7 +63,7 @@ class Substitution:
         # Check target patterns
         tgt_checker = _TgtPatChecker(src_nodes)
         for tgt in tgt_pats:
-            tgt_checker.visit(tgt, None)
+            tgt_checker.visit(tgt, Env())
 
         # Store source and target patterns
         self.src_pats = src_pats
@@ -96,7 +96,7 @@ class Substitution:
         return new_wl
 
 
-class _SrcPatChecker(PatternVisitor[None]):
+class _SrcPatChecker(PatternVisitor[Env]):
     def __init__(self, prev_visited: Set[Pattern], idx: int):
         super().__init__()
         self.prev_visited = prev_visited
@@ -106,73 +106,73 @@ class _SrcPatChecker(PatternVisitor[None]):
     def has_visited(self, node: Pattern):
         return node in self.visited or node in self.prev_visited
 
-    def visit(self, node: Pattern, arg: None):
+    def visit(self, node: Pattern, env: Env):
         if (not self.has_visited(node)) and node.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
             )
-        super().visit(node, arg)
+        super().visit(node, env)
         node.src_idx = self.idx
 
-    def visit_const(self, const: Const, arg: None) -> Any:
+    def visit_const(self, const: Const, env: Env) -> Any:
         if isinstance(const.value, Attr):
-            self.attr_checker.visit(const.value, None)
+            self.attr_checker.visit(const.value, env)
 
-    def visit_call(self, call: Call, arg: None) -> Any:
-        super().visit_call(call, arg)
+    def visit_call(self, call: Call, env: Env) -> Any:
+        super().visit_call(call, env)
 
         # Check if all attribute expressions only contain reference to visited nodes
         for a in call.attrs.values():
-            self.attr_checker.visit(a, None)
+            self.attr_checker.visit(a, env)
 
 
-class _SrcAttrChecker(AttrVisitor[None]):
+class _SrcAttrChecker(AttrVisitor[Env]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
-    def visit_get_node(self, get_node: GetNodeAttr, arg: None):
+    def visit_get_node(self, get_node: GetNodeAttr, env: Env):
         if not self.checker.has_visited(get_node.node):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
 
 
-class _TgtPatChecker(PatternVisitor):
+class _TgtPatChecker(PatternVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         super().__init__()
         self.src_nodes = src_nodes
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
-    def visit(self, node: Pattern, arg: None):
+    def visit(self, node: Pattern, env: Env):
         if not (node in self.visited or node in self.src_nodes) \
                 and node.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
-        super().visit(node, arg)
+        super().visit(node, env)
         node.in_tgt = True
 
-    def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Any:
+    def visit_wildcard(self, wildcard: Wildcard, env: Env) -> Any:
         if wildcard not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
-    def visit_var(self, var: Var, arg: None) -> Any:
+    def visit_var(self, var: Var, env: Env) -> Any:
         if var not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
 
-    def visit_const(self, const: Const, arg: None) -> Any:
+    def visit_const(self, const: Const, env: Env) -> Any:
         if const.value is None:
             raise ValueError(
                 'Constant node in target pattern must contain a value.'
             )
 
-    def visit_call(self, call: Call, arg: None) -> Any:
+    def visit_call(self, call: Call, env: Env) -> Any:
         # Visit arguments
-        super().visit_call(call, arg)
+        super().visit_call(call, env)
 
         # Check if all non-default attributes are provided for concrete op
         if isinstance(call.op, ConcreteOp):
@@ -190,14 +190,14 @@ class _TgtPatChecker(PatternVisitor):
 
         # Check if all attribute expressions only contain reference to nodes in source graph
         for a in call.attrs.values():
-            self.attr_checker.visit(a, None)
+            self.attr_checker.visit(a, env)
 
 
-class _TgtAttrChecker(AttrVisitor[None]):
+class _TgtAttrChecker(AttrVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
-    def visit_get_node(self, get_node: GetNodeAttr, arg: None):
+    def visit_get_node(self, get_node: GetNodeAttr, env: Env):
         if get_node.node not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
