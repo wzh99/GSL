@@ -64,13 +64,14 @@ class ConstAttr(Attr):
         self.value = value
 
 
-class GetNodeAttr(Attr):
+class GetAttr(Attr):
     """
     Access attribute from a graph node.
     """
 
     def __init__(self, node, name: str):
-        self.node = node
+        from .pat import Pattern
+        self.node: Pattern = node
         self.name = name
 
 
@@ -198,8 +199,8 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_any(attr, arg)
         elif isinstance(attr, ConstAttr):
             return self.visit_const(attr, arg)
-        elif isinstance(attr, GetNodeAttr):
-            return self.visit_get_node(attr, arg)
+        elif isinstance(attr, GetAttr):
+            return self.visit_getattr(attr, arg)
         elif isinstance(attr, TupleAttr):
             return self.visit_tuple(attr, arg)
         elif isinstance(attr, GetItemAttr):
@@ -217,7 +218,7 @@ class AttrVisitor(Generic[ArgType]):
     def visit_const(self, const: ConstAttr, arg: ArgType) -> Any:
         pass
 
-    def visit_get_node(self, get_node: GetNodeAttr, arg: ArgType) -> Any:
+    def visit_getattr(self, get_attr: GetAttr, arg: ArgType) -> Any:
         pass
 
     def visit_tuple(self, tup_attr: TupleAttr, arg: ArgType) -> Any:

@@ -130,8 +130,8 @@ class _SrcAttrChecker(AttrVisitor[Env]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
-    def visit_get_node(self, get_node: GetNodeAttr, env: Env):
-        if not self.checker.has_visited(get_node.node):
+    def visit_getattr(self, get_attr: GetAttr, env: Env):
+        if not self.checker.has_visited(get_attr.node):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
@@ -197,8 +197,8 @@ class _TgtAttrChecker(AttrVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
-    def visit_get_node(self, get_node: GetNodeAttr, env: Env):
-        if get_node.node not in self.src_nodes:
+    def visit_getattr(self, get_attr: GetAttr, env: Env):
+        if get_attr.node not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )

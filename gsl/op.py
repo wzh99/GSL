@@ -1,6 +1,6 @@
 from typing import Optional, Union, Tuple, Dict, Any
 
-from .pat import PatternConvertible, Attr, Call, Tup
+from .pat import PatternConvertible, Attr, Call, Tup, Variadic
 
 
 class Abs(Call):
@@ -35,9 +35,15 @@ class Ones(Call):
 
 
 class Concatenate(Call):
-    def __init__(self, data: Tuple[PatternConvertible, ...],
+    def __init__(self, data: Union[Tuple[PatternConvertible, ...], Variadic],
                  axis: Optional[int] = None):
-        super().__init__('concatenate', Tup(*data), **_filter_attrs({
+        if isinstance(data, Variadic):
+            arg = data
+        elif isinstance(data, tuple):
+            arg = Tup(*data)
+        else:
+            raise TypeError('Invalid type \'{}\' for input of \'concatenate\'.')
+        super().__init__('concatenate', arg, **_filter_attrs({
             'axis': axis,
         }))
 

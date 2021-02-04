@@ -18,6 +18,7 @@ class Pattern:
         self.succ: List[Pattern] = []
         self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
+        self.is_template = False
 
     @property
     def pred(self):
@@ -33,7 +34,7 @@ class Pattern:
 
     @property
     def src_succ(self):
-        return list(filter(lambda p: p.in_src, self.succ))
+        return list(filter(lambda p: p.in_src and not p.is_template, self.succ))
 
     @property
     def is_used(self) -> bool:
@@ -45,10 +46,10 @@ class Pattern:
     def __getattr__(self, name: str):
         if name not in self.shared_attrs:
             raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
-        return GetNodeAttr(self, name)
+        return GetAttr(self, name)
 
-    def __getitem__(self, index: AttrConvertible):
-        return GetItem(self, index)
+    def __getitem__(self, *item):
+        return GetItem(self, item[0])
 
     def __neg__(self):
         return Call('negative', self)
@@ -252,7 +253,7 @@ class Call(Pattern):
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
                 )
 
-        return GetNodeAttr(self, name)
+        return GetAttr(self, name)
 
 
 def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
@@ -290,6 +291,89 @@ class GetItem(Pattern):
     @property
     def pred(self):
         return [self.tup]
+
+
+class Variadic(Pattern):
+    """
+    Matches tuple with arbitrary input, each with the same pattern. It can also be used to specify
+    arbitrary number of output nodes, each with the same pattern.
+    """
+
+    def __init__(self, pat: Pattern, templates: Optional[List[Pattern]] = None,
+                 first: Optional[List[Optional[Pattern]]] = None, index: Optional[Symbol] = None,
+                 length: Optional[AttrConvertible] = None):
+        """
+        Constructor.
+
+        :param pat: The common pattern of tuple fields.
+        :param templates: Sub-patterns serve as templates, that is, for each of the expression
+            matched, a unique pattern will be created. Note that if at least one sub-pattern is a
+            template, the whole pattern must be a template as well.
+        :param first: Pattern used in firstly matched expression. Sometimes, there are constraints
+            imposed between template patterns. In this situation, pattern duplicated for firstly
+            matched expression is different from the rest. The i-th pattern in first list will be
+            used for the i-th template at first match.
+        :param index: Symbol that indicates the index of matched expression.
+        :param length: An attribute expression that indicates how long the pattern will be. In
+            source pattern, it is ignored. In target pattern, it is required to specify the length
+            of constructed tuple.
+        """
+        super().__init__()
+
+        # Add successor to pattern
+        self.pat = pat
+        pat.succ.append(self)
+
+        # Check templates
+        if templates is not None and len(templates) > 0:  # at least one pattern is a template
+            if pat not in templates:
+                raise ValueError(
+                    'Template pattern must be duplicated if any of its sub-pattern should be '
+                    'duplicated.'
+                )
+            if first is not None:
+                if len(templates) != len(first):
+                    raise ValueError(
+                        'Number of first symbols must match number of duplicated symbols.'
+                    )
+            else:
+                first = templates  # first and duplicated list are the same
+        else:
+            templates = []
+        for t in templates:
+            t.is_template = True
+        self.templates: List[Pattern] = templates
+
+        # Map templates to first
+        self.first_map: Dict[Pattern, Pattern] = dict(zip(templates, first))
+
+        # Initialize index and length
+        self.index = index
+        self.length: Optional[Attr] = None
+        if length is not None:
+            self.length = to_attr(length)
+
+        # Initialize records during substitution
+        self.count = 0
+        self.pat_inst: List[Dict[Pattern, Pattern]] = []
+
+    def __getattr__(self, item: str):
+        if item != 'length':
+            raise ValueError(
+                'Unknown attribute \'{}\' of variadic pattern.'.format(item)
+            )
+        return GetAttr(self, item)
+
+    def __getitem__(self, index: AttrConvertible, template: Pattern):
+        return GetInstance(self, to_attr(index), template)
+
+
+class GetInstance(Pattern):
+    def __init__(self, var: Variadic, index: Attr, template: Pattern):
+        super().__init__()
+        self.var = var
+        self.index = index
+        self.template = template
 
 
 class PatternVisitor(Generic[ArgType]):

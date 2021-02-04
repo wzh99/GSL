@@ -1,6 +1,6 @@
 from typing import Set
 
-from tvm import relay, ir
+from tvm import ir, relay
 
 from . import util
 from .pat import *
@@ -509,10 +509,10 @@ class _AttrEvaluator(AttrVisitor[Env]):
     def visit_const(self, const: ConstAttr, env: Env):
         return const.value
 
-    def visit_get_node(self, get_node: GetNodeAttr, env: Env):
+    def visit_getattr(self, get_attr: GetAttr, env: Env):
         # Get actual expression from map
-        node = get_node.node
-        name = get_node.name
+        node = get_attr.node
+        name = get_attr.name
         expr = self.pat_to_expr[node]
 
         # Access attribute according to type of node
