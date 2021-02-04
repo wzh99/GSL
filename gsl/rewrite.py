@@ -210,12 +210,12 @@ class _RelayBuilder(PatternVisitor[Env]):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
-    def visit(self, node: Pattern, env: Env):
-        if node in self.pat_to_expr:
-            return self.pat_to_expr[node]
+    def visit(self, pat: Pattern, env: Env):
+        if pat in self.pat_to_expr:
+            return self.pat_to_expr[pat]
         else:
-            expr = super().visit(node, env)
-            self.pat_to_expr[node] = expr
+            expr = super().visit(pat, env)
+            self.pat_to_expr[pat] = expr
             return expr
 
     def visit_const(self, const: Const, env: Env) -> Any:
@@ -361,6 +361,10 @@ class _ExprMatcher:
             res = self.match_tuple(pat, expr, env)
         elif isinstance(pat, GetItem):
             res = self.match_getitem(pat, expr, env)
+        elif isinstance(pat, Variadic):
+            res = self.match_variadic(pat, expr, env)
+        elif isinstance(pat, GetInstance):
+            res = self.match_get_inst(pat, expr, env)
         else:
             res = False
 
@@ -484,6 +488,12 @@ class _ExprMatcher:
         idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
         return idx == expr.index
 
+    def match_variadic(self, var: Variadic, expr: relay.Expr, env: Env) -> bool:
+        pass
+
+    def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
+        pass
+
 
 class _AttrEvaluator(AttrVisitor[Env]):
     def __init__(self, pat_to_expr: PatExprMap):
@@ -511,19 +521,23 @@ class _AttrEvaluator(AttrVisitor[Env]):
 
     def visit_getattr(self, get_attr: GetAttr, env: Env):
         # Get actual expression from map
-        node = get_attr.node
+        pat = get_attr.pat
+        if isinstance(pat, GetInstance):  # map template to instance
+            pat = eval_get_inst(pat, self.pat_to_expr, env)
         name = get_attr.name
-        expr = self.pat_to_expr[node]
+        expr = self.pat_to_expr[pat]
 
         # Access attribute according to type of node
         if name in Pattern.shared_attrs:
             return self.get_expr_attr(expr, name)
-        elif isinstance(node, Call):
+        elif isinstance(pat, Call):
             if (expr.attrs is None) or (name not in expr.attrs.keys()):
                 raise RuntimeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
                 )
             return expr.attrs[name]
+        elif isinstance(pat, Variadic) and name == 'length':
+            return len(pat)
         else:
             raise RuntimeError('Unreachable.')
 
@@ -551,3 +565,8 @@ class _AttrEvaluator(AttrVisitor[Env]):
         if val is None:
             raise RuntimeError('Symbol \'{}\' not found in environment.'.format(sym))
         return val
+
+
+def eval_get_inst(get_inst: GetInstance, pat_to_expr: PatExprMap, env: Env) -> Pattern:
+    idx = _AttrEvaluator(pat_to_expr).visit(get_inst.index, env)
+    return get_inst.var(idx, get_inst.t)

@@ -30,6 +30,23 @@ def split_concat():
     return Substitution(y1, y2)
 
 
+def split_concat_variadic():
+    # Inputs
+    x = Wildcard()
+
+    # Source pattern: concat(split(x, axis=a), axis=a)
+    split = Split(x, indices_or_sections=2)
+    i = Symbol()
+    item = split[i]
+    y1 = Concatenate(Variadic(item, templates=[item], index=i), axis=split.axis)
+
+    # Target pattern: x
+    y2 = x
+
+    # Build substitution
+    return Substitution(y1, y2)
+
+
 def bias_add_add():
     # Input
     x1 = Wildcard()

@@ -69,9 +69,9 @@ class GetAttr(Attr):
     Access attribute from a graph node.
     """
 
-    def __init__(self, node, name: str):
+    def __init__(self, pat, name: str):
         from .pat import Pattern
-        self.node: Pattern = node
+        self.pat: Pattern = pat
         self.name = name
 
 

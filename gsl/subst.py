@@ -106,13 +106,13 @@ class _SrcPatChecker(PatternVisitor[Env]):
     def has_visited(self, node: Pattern):
         return node in self.visited or node in self.prev_visited
 
-    def visit(self, node: Pattern, env: Env):
-        if (not self.has_visited(node)) and node.is_used:
+    def visit(self, pat: Pattern, env: Env):
+        if (not self.has_visited(pat)) and pat.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
             )
-        super().visit(node, env)
-        node.src_idx = self.idx
+        super().visit(pat, env)
+        pat.src_idx = self.idx
 
     def visit_const(self, const: Const, env: Env) -> Any:
         if isinstance(const.value, Attr):
@@ -125,16 +125,42 @@ class _SrcPatChecker(PatternVisitor[Env]):
         for a in call.attrs.values():
             self.attr_checker.visit(a, env)
 
+    def visit_getitem(self, getitem: GetItem, env: Env) -> Any:
+        super().visit_getitem(getitem, env)
+        self.attr_checker.visit(getitem.index, env)
+
+    def visit_variadic(self, var: Variadic, env: Env) -> Any:
+        # Add index to environment and check pattern
+        new_env = env
+        if var.index is not None:
+            new_env = env + (var.index, True)
+        self.visit(var.pat, new_env)
+
+        # Check template and first list
+        for t in var.templates:
+            self.visit(t, new_env)
+        for t in var.first:
+            if t is not None:
+                self.visit(t, new_env)
+
+    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
+        super().visit_get_instance(get_inst, env)
+        self.attr_checker.visit(get_inst.index, env)
+
 
 class _SrcAttrChecker(AttrVisitor[Env]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
     def visit_getattr(self, get_attr: GetAttr, env: Env):
-        if not self.checker.has_visited(get_attr.node):
+        if not self.checker.has_visited(get_attr.pat):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
+
+    def visit_symbol(self, sym: Symbol, env: Env) -> Any:
+        if sym not in env:
+            raise KeyError('Symbol not found in environment.')
 
 
 class _TgtPatChecker(PatternVisitor[Env]):
@@ -143,14 +169,14 @@ class _TgtPatChecker(PatternVisitor[Env]):
         self.src_nodes = src_nodes
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
-    def visit(self, node: Pattern, env: Env):
-        if not (node in self.visited or node in self.src_nodes) \
-                and node.in_tgt:
+    def visit(self, pat: Pattern, env: Env):
+        if not (pat in self.visited or pat in self.src_nodes) \
+                and pat.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
-        super().visit(node, env)
-        node.in_tgt = True
+        super().visit(pat, env)
+        pat.in_tgt = True
 
     def visit_wildcard(self, wildcard: Wildcard, env: Env) -> Any:
         if wildcard not in self.src_nodes:
@@ -192,13 +218,36 @@ class _TgtPatChecker(PatternVisitor[Env]):
         for a in call.attrs.values():
             self.attr_checker.visit(a, env)
 
+    def visit_variadic(self, var: Variadic, env: Env) -> Any:
+        # Add index to environment and check pattern
+        new_env = env
+        if var.index is not None:
+            new_env = env + (var.index, True)
+        self.visit(var.pat, new_env)
+
+        # Check template and first list
+        for t in var.templates:
+            self.visit(t, new_env)
+        for t in var.first:
+            if t is not None:
+                self.visit(t, new_env)
+
+        # Check length
+        if var.length is None:
+            raise ValueError('Length is not specified for target pattern.')
+        self.visit(var.length, env)
+
+    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
+        super().visit_get_instance(get_inst, env)
+        self.attr_checker.visit(get_inst.index, env)
+
 
 class _TgtAttrChecker(AttrVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
     def visit_getattr(self, get_attr: GetAttr, env: Env):
-        if get_attr.node not in self.src_nodes:
+        if get_attr.pat not in self.src_nodes:
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )

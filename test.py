@@ -71,6 +71,20 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_split_concat_variadic(self):
+        print('Split-Concat Variadic')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 6, 4, 4))
+        split = relay.split(x, 3, axis=1)
+        y = relay.concatenate(split, 1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.split_concat_variadic()
+        self.assertTrue(True)
+
     def test_bias_add_add(self):
         print('BiasAdd-Add')
 
@@ -376,6 +390,7 @@ if __name__ == '__main__':
         # MatchTest('test_pyramid'),
         # RuleTest('test_trans_trans'),
         # RuleTest('test_split_concat'),
+        # RuleTest('test_split_concat_variadic'),
         # RuleTest('test_bias_add_add'),
         # RuleTest('test_diamond_conv_add'),
         # RuleTest('test_two_conv_add'),

@@ -22,7 +22,8 @@ class Pattern:
 
     @property
     def pred(self):
-        return []
+        lst: List[Pattern] = []
+        return lst
 
     @property
     def is_output(self) -> bool:
@@ -340,12 +341,26 @@ class Variadic(Pattern):
                 first = templates  # first and duplicated list are the same
         else:
             templates = []
-        for t in templates:
-            t.is_template = True
-        self.templates: List[Pattern] = templates
 
-        # Map templates to first
-        self.first_map: Dict[Pattern, Pattern] = dict(zip(templates, first))
+        # Map template to first
+        self.first_map: Dict[Pattern, Pattern] = dict()
+        for i in range(len(templates)):
+            t, f = templates[i], first[i]
+            if isinstance(t, Variadic):
+                raise TypeError(
+                    'Variadic cannot be a template pattern.'
+                )
+            t.is_template = True
+            if f is None:
+                f = first[i] = t
+            f.is_template = True
+            if t.__class__ != f.__class__:
+                raise TypeError(
+                    'Template and first pattern must be of same type.'
+                )
+            self.first_map[t] = f
+        self.templates: List[Pattern] = templates
+        self.first: List[Pattern] = first
 
         # Initialize index and length
         self.index = index
@@ -354,8 +369,8 @@ class Variadic(Pattern):
             self.length = to_attr(length)
 
         # Initialize records during substitution
-        self.count = 0
-        self.pat_inst: List[Dict[Pattern, Pattern]] = []
+        self.pat_inst: List[Pattern] = []
+        self.tpl_inst: List[Dict[Pattern, Pattern]] = []
 
     def __getattr__(self, item: str):
         if item != 'length':
@@ -365,41 +380,70 @@ class Variadic(Pattern):
         return GetAttr(self, item)
 
     def __getitem__(self, index: AttrConvertible, template: Pattern):
+        if template not in self.templates:
+            raise ValueError('Key pattern is not template of variadic.')
         return GetInstance(self, to_attr(index), template)
+
+    def __len__(self) -> int:
+        return len(self.pat_inst)
+
+    def __call__(self, idx: int, t: Pattern):
+        if idx >= len(self):
+            raise RuntimeError(
+                'Index {} out of bound {}.'.format(idx, len(self))
+            )
+        inst_map = self.tpl_inst[idx]
+        if t not in inst_map:
+            raise RuntimeError(
+                'Template pattern not found in instance mapping.'
+            )
+        return inst_map[t]
+
+    def pred(self):
+        return self.pat_inst
+
+    def instantiate(self, env: Env) -> Pattern:
+        inst = _PatInst(self).visit(self.pat, env)
+        self.pat_inst.append(inst)
+        return inst
 
 
 class GetInstance(Pattern):
-    def __init__(self, var: Variadic, index: Attr, template: Pattern):
+    def __init__(self, var: Variadic, index: Attr, t: Pattern):
         super().__init__()
         self.var = var
         self.index = index
-        self.template = template
+        self.t = t
 
 
 class PatternVisitor(Generic[ArgType]):
     def __init__(self):
         self.visited: Dict[Pattern, Any] = dict()
 
-    def visit(self, node: Pattern, arg: ArgType):
-        if node in self.visited:
-            return self.visited[node]
-        if isinstance(node, Wildcard):
-            ret = self.visit_wildcard(node, arg)
-        elif isinstance(node, Var):
-            ret = self.visit_var(node, arg)
-        elif isinstance(node, Const):
-            ret = self.visit_const(node, arg)
-        elif isinstance(node, Call):
-            ret = self.visit_call(node, arg)
-        elif isinstance(node, Op):
-            ret = self.visit_op(node, arg)
-        elif isinstance(node, Tup):
-            ret = self.visit_tuple(node, arg)
-        elif isinstance(node, GetItem):
-            ret = self.visit_getitem(node, arg)
+    def visit(self, pat: Pattern, arg: ArgType) -> Any:
+        if pat in self.visited:
+            return self.visited[pat]
+        if isinstance(pat, Wildcard):
+            ret = self.visit_wildcard(pat, arg)
+        elif isinstance(pat, Var):
+            ret = self.visit_var(pat, arg)
+        elif isinstance(pat, Const):
+            ret = self.visit_const(pat, arg)
+        elif isinstance(pat, Call):
+            ret = self.visit_call(pat, arg)
+        elif isinstance(pat, Op):
+            ret = self.visit_op(pat, arg)
+        elif isinstance(pat, Tup):
+            ret = self.visit_tuple(pat, arg)
+        elif isinstance(pat, GetItem):
+            ret = self.visit_getitem(pat, arg)
+        elif isinstance(pat, Variadic):
+            ret = self.visit_variadic(pat, arg)
+        elif isinstance(pat, GetInstance):
+            ret = self.visit_get_instance(pat, arg)
         else:
             raise RuntimeError('Unknown node type.')
-        self.visited[node] = ret
+        self.visited[pat] = ret
         return ret
 
     def visit_wildcard(self, wildcard: Wildcard, arg: ArgType) -> Any:
@@ -413,8 +457,8 @@ class PatternVisitor(Generic[ArgType]):
 
     def visit_call(self, call: Call, arg: ArgType) -> Any:
         self.visit(call.op, arg)
-        for arg in call.args:
-            self.visit(arg, arg)
+        for a in call.args:
+            self.visit(a, arg)
 
     def visit_op(self, op: Op, arg: ArgType) -> Any:
         pass
@@ -425,6 +469,39 @@ class PatternVisitor(Generic[ArgType]):
 
     def visit_getitem(self, getitem: GetItem, arg: ArgType) -> Any:
         self.visit(getitem.tup, arg)
+
+    def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
+        self.visit(var.pat, arg)
+
+    def visit_get_instance(self, get_inst: GetInstance, arg: ArgType) -> Any:
+        self.visit(get_inst.var, arg)
+
+
+class _PatInst(PatternVisitor[Env]):
+    def __init__(self, var: Variadic):
+        super().__init__()
+        self.var = var
+        self.index = len(var)
+        self.map: Dict[Pattern, Pattern] = {}
+        var.tpl_inst.append(self.map)
+
+    def visit(self, pat: Pattern, env: Env) -> Pattern:
+        if pat.is_template:
+            # Create instantiated pattern
+            t = self.var.first_map[pat] if self.index == 0 else pat
+            inst = self.visit(t, env)
+            self.map[t] = inst
+
+            # Add pattern as successor of its predecessors
+            inst.is_template = False
+            for p in pat.pred:
+                p.succ.append(pat)
+            return inst
+        else:
+            return pat
+
+    def visit_variadic(self, var: Variadic, arg: ArgType) -> Pattern:
+        raise RuntimeError('Unreachable.')
 
 
 class _Visualizer(PatternVisitor[None]):
@@ -468,6 +545,18 @@ class _Visualizer(PatternVisitor[None]):
         node_id = self._next_id()
         self.graph.node(node_id, label='.{}'.format(getitem.index), **self.attrs)
         self.graph.edge(self.visit(getitem.tup, arg), node_id)
+        return node_id
+
+    def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='(...)', **self.attrs)
+        self.graph.edge(self.visit(var.pat, arg), node_id)
+        return node_id
+
+    def visit_get_instance(self, get_inst: GetInstance, arg: ArgType) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='[i, x]', **self.attrs)
+        self.graph.edge(self.visit(get_inst.var, arg), node_id)
         return node_id
 
     def _next_id(self) -> str:
