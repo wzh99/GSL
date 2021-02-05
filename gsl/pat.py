@@ -376,9 +376,9 @@ class Variadic(Pattern):
 
         # Initialize index and length
         self.index = index
-        self.length: Optional[Attr] = None
+        self.len: Optional[Attr] = None
         if length is not None:
-            self.length = to_attr(length)
+            self.len = to_attr(length)
 
         # Initialize records during substitution
         self.pat_inst: List[Pattern] = []
@@ -511,14 +511,19 @@ class _PatInst(PatternVisitor[None]):
 
     def visit(self, pat: Pattern, arg: None) -> Pattern:
         if self.var.has_template(pat):  # current pattern is a template
-            t = pat
-            if self.index == 0 and self.var.use_first(pat):  # tis template has first instance
-                t = self.var.get_first(t)
-                self.map[pat] = t  # first instance is not a template
+            if self.index == 0 and self.var.use_first(pat):  # this template has first instance
+                fst = self.var.get_first(pat)
+                self.map[pat] = fst  # first instance is not a template
+                for p in fst.pred:
+                    p.succ.append(fst)
             else:
-                inst: Pattern = super().visit(t, arg)
+                # Instantiate template and copy attributes to instance
+                inst: Pattern = super().visit(pat, arg)
                 inst.is_template = False
-                self.map[pat] = inst  # maps template to created instance
+                inst.src_idx = pat.src_idx
+                inst.in_tgt = pat.in_tgt
+                self.map[pat] = inst  # map template to created instance
+            return self.map[pat]
         else:
             return pat  # not a template, keep it
 

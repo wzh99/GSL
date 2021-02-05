@@ -206,7 +206,7 @@ class _RelayBuilder(PatternVisitor[Env]):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
-    def visit(self, pat: Pattern, env: Env):
+    def visit(self, pat: Pattern, env: Env) -> relay.Expr:
         if pat in self.pat_to_expr:
             return self.pat_to_expr[pat]
         else:
@@ -214,7 +214,7 @@ class _RelayBuilder(PatternVisitor[Env]):
             self.pat_to_expr[pat] = expr
             return expr
 
-    def visit_const(self, const: Const, env: Env) -> Any:
+    def visit_const(self, const: Const, env: Env) -> relay.Expr:
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
@@ -223,7 +223,7 @@ class _RelayBuilder(PatternVisitor[Env]):
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
-    def visit_call(self, call: Call, env: Env) -> Any:
+    def visit_call(self, call: Call, env: Env) -> relay.Expr:
         args = [self.visit(a, env) for a in call.args]
         attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr, env))
                       for name, attr in call.attrs.items()])
@@ -237,7 +237,7 @@ class _RelayBuilder(PatternVisitor[Env]):
                 'set {}.'.format(op_name, len(args), attrs))
         return call_expr
 
-    def visit_op(self, op: Op, env: Env) -> Any:
+    def visit_op(self, op: Op, env: Env) -> str:
         if isinstance(op, ConcreteOp):
             return op.name
         elif isinstance(op, OpWithFlag):
@@ -245,13 +245,32 @@ class _RelayBuilder(PatternVisitor[Env]):
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup: Tup, env: Env) -> Any:
+    def visit_tuple(self, tup: Tup, env: Env) -> relay.Expr:
         return relay.Tuple([self.visit(f, env) for f in tup.fields])
 
-    def visit_getitem(self, getitem: GetItem, env: Env) -> Any:
+    def visit_getitem(self, getitem: GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
         idx = AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
         return tup[idx]
+
+    def visit_variadic(self, var: Variadic, env: Env) -> relay.Expr:
+        # Evaluate length
+        length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)
+
+        # Create fields
+        fields: List[relay.Expr] = []
+        for i in range(length):
+            new_env = env
+            if var.index is not None:
+                new_env = env + (var.index, i)
+            pat_f = var.instantiate()
+            fields.append(self.visit(pat_f, new_env))
+
+        return relay.Tuple(fields)
+
+    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> relay.Expr:
+        inst = eval_get_inst(get_inst, self.pat_to_expr, env)
+        return self.pat_to_expr[inst]
 
 
 class _RewriteMutator(relay.ExprMutator):

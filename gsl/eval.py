@@ -1,5 +1,6 @@
 from tvm import ir, relay
 
+from . import util
 from .pat import *
 
 PatExprMap = Dict[Pattern, relay.Expr]
@@ -8,6 +9,9 @@ PatExprMap = Dict[Pattern, relay.Expr]
 class AttrEvaluator(AttrVisitor[Env]):
     def __init__(self, pat_to_expr: PatExprMap):
         self.pat_to_expr = pat_to_expr
+
+    def visit(self, attr: Attr, env: Env) -> Any:
+        return util.cvt_ir_value(super().visit(attr, env))
 
     @staticmethod
     def get_expr_attr(expr: relay.Expr, name: str):

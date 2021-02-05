@@ -83,6 +83,8 @@ class RuleTest(unittest.TestCase):
 
         # Apply substitution
         subst = rule.split_concat_variadic()
+        wl = subst(wl)
+        print(wl.mod)
         self.assertTrue(True)
 
     def test_bias_add_add(self):

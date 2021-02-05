@@ -144,8 +144,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
                 self.visit(t, new_env)
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
-        super().visit_get_instance(get_inst, env)
-        self.attr_checker.visit(get_inst.index, env)
+        raise ValueError('Cannot get instance of variadic in source pattern.')
 
 
 class _SrcAttrChecker(AttrVisitor[Env]):
@@ -232,9 +231,9 @@ class _TgtPatChecker(PatternVisitor[Env]):
                 self.visit(var.get_first(t), new_env)
 
         # Check length
-        if var.length is None:
+        if var.len is None:
             raise ValueError('Length is not specified for target pattern.')
-        self.visit(var.length, env)
+        self.attr_checker.visit(var.len, env)
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)

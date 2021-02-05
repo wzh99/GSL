@@ -1,4 +1,3 @@
-from . import util
 from .eval import *
 
 
@@ -157,7 +156,21 @@ class Matcher:
         return idx == expr.index
 
     def match_variadic(self, var: Variadic, expr: relay.Expr, env: Env) -> bool:
-        pass
+        # Matches tuple node
+        if not isinstance(expr, relay.Tuple):
+            return False
+
+        # Match tuple fields
+        for i in range(len(expr.fields)):
+            expr_f = expr.fields[i]
+            new_env = env
+            if var.index is not None:
+                new_env = env + (var.index, i)
+            pat_f = var.instantiate()
+            if not self.match(pat_f, expr_f, new_env):
+                return False
+
+        return True
 
     def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
-        pass
+        raise RuntimeError('Unreachable.')

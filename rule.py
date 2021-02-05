@@ -35,7 +35,7 @@ def split_concat_variadic():
     x = Wildcard()
 
     # Source pattern: concat(split(x, axis=a), axis=a)
-    split = Split(x, indices_or_sections=2)
+    split = Split(x)
     i = Symbol()
     item = split[i]
     y1 = Concatenate(Variadic(item, templates=[item], index=i), axis=split.axis)
@@ -217,6 +217,23 @@ def merge_element_wise():
 
     # Build substitution
     return Substitution([ew1, ew2], [ew, ew])
+
+
+def merge_element_wise_variadic():
+    # Input
+    x = Wildcard()
+
+    # Source pattern
+    ew_op = OpWithFlag(OpFlag.ELEMENT_WISE)
+    call = Call(ew_op, x)
+    src = Variadic(call, templates=[call])
+
+    # Target pattern
+    ew = Call(ew_op, x)
+    tgt = Variadic(ew)
+
+    # Build substitution
+    return Substitution(src, tgt)
 
 
 def parallel_conv():
