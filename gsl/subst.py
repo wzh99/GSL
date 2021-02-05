@@ -228,9 +228,8 @@ class _TgtPatChecker(PatternVisitor[Env]):
         # Check template and first list
         for t in var.templates:
             self.visit(t, new_env)
-        for t in var.first:
-            if t is not None:
-                self.visit(t, new_env)
+            if var.use_first(t):
+                self.visit(var.get_first(t), new_env)
 
         # Check length
         if var.length is None:
