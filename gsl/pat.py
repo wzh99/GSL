@@ -88,6 +88,10 @@ class Pattern:
                     return True
             return False
 
+    def clear(self):
+        for p in self.pred:
+            p.clear()
+
     def visualize(self, name: str, path: str = 'out', font_name: str = default_font_name, **attrs):
         """
         Visualize this graph pattern node.
@@ -384,6 +388,7 @@ class Variadic(Pattern):
         self.pat_inst: List[Pattern] = []
         self.tpl_inst: List[Dict[Pattern, Pattern]] = []
 
+    @property
     def pred(self):
         return self.pat_inst
 
@@ -416,6 +421,19 @@ class Variadic(Pattern):
                 'Template pattern not found in instance mapping.'
             )
         return inst_map[t]
+
+    def clear(self):
+        super().clear()
+
+        # Remove instances from their predecessors' successor list
+        for inst_map in self.tpl_inst:
+            for inst in inst_map.values():
+                for p in inst.pred:
+                    p.succ.remove(inst)
+
+        # Clear instance records
+        self.pat_inst.clear()
+        self.tpl_inst.clear()
 
     def has_template(self, t: Pattern) -> bool:
         return t in self.templates

@@ -25,24 +25,35 @@ class ExprRewriter:
             pat_to_expr: PatExprMap = dict()
             fst_matched = self.match_one(self.src_pats[0], expr, pat_to_expr)
             if fst_matched is None:
-                return expr  # even the first output pattern node is not matched
+                break  # even the first output pattern node is not matched
             src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
             if len(src_matched) == 0:  # the rest output nodes fail to match
-                return expr
+                break
 
             # Add source patterns to match history
             self.history.update(src_matched)
 
             # Check whether this subgraph has outgoing edges not described by source patterns
             if not self.check_succ(pat_to_expr, succ_list):
+                self.clear_pat()
                 continue
 
             # Generate target expressions and map source to them
             tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env()) for tgt in self.tgt_pats]
             expr_map = dict(zip(src_matched, tgt_expr))
+            self.clear_pat()
 
             # Rewrite expression
             expr = _RewriteMutator(expr_map).visit(expr)
+
+        self.clear_pat()
+        return expr
+
+    def clear_pat(self):
+        for p in self.src_pats:
+            p.clear()
+        for p in self.tgt_pats:
+            p.clear()
 
     def match_one(self, pat: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
             -> Optional[relay.Expr]:
