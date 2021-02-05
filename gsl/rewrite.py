@@ -6,14 +6,16 @@ SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
 class ExprRewriter:
-    def __init__(self, src_pats: List[Pattern], tgt_pats: List[Pattern], fast_mode: bool):
-        self.src_pats = src_pats
-        self.tgt_pats = tgt_pats
+    def __init__(self, src_out: List[Pattern], tgt_out: List[Pattern], is_var: bool,
+                 fast_mode: bool):
+        self.src_out = src_out
+        self.tgt_out = tgt_out
+        self.is_var = is_var
         self.fast_mode = fast_mode
         self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
-        if self.fast_mode and len(self.src_pats) == 1:
+        if self.fast_mode and len(self.src_out) == 1 and not self.is_var:
             return _SinglePatRewriter(self).visit(expr)
 
         # Greedily match all subgraphs
@@ -23,12 +25,16 @@ class ExprRewriter:
 
             # Find matched expressions with patterns
             pat_to_expr: PatExprMap = dict()
-            fst_matched = self.match_one(self.src_pats[0], expr, pat_to_expr)
-            if fst_matched is None:
-                break  # even the first output pattern node is not matched
-            src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
-            if len(src_matched) == 0:  # the rest output nodes fail to match
-                break
+            if self.is_var:  # match variadic with different procedure
+                # noinspection PyTypeChecker
+                src_matched = self.match_variadic(self.src_out[0], expr, pat_to_expr, succ_list)
+            else:
+                fst_matched = self.match_one(self.src_out[0], expr, pat_to_expr)
+                if fst_matched is None:
+                    break  # even the first output pattern node is not matched
+                src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
+                if len(src_matched) == 0:  # the rest output nodes fail to match
+                    break
 
             # Add source patterns to match history
             self.history.update(src_matched)
@@ -39,7 +45,7 @@ class ExprRewriter:
                 continue
 
             # Generate target expressions and map source to them
-            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env()) for tgt in self.tgt_pats]
+            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env()) for tgt in self.tgt_out]
             expr_map = dict(zip(src_matched, tgt_expr))
             self.clear_pat()
 
@@ -50,9 +56,9 @@ class ExprRewriter:
         return expr
 
     def clear_pat(self):
-        for p in self.src_pats:
+        for p in self.src_out:
             p.clear()
-        for p in self.tgt_pats:
+        for p in self.tgt_out:
             p.clear()
 
     def match_one(self, pat: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
@@ -102,9 +108,9 @@ class ExprRewriter:
     def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:
         output_matched = [fst_matched]
-        for src_idx in range(1, len(self.src_pats)):
+        for src_idx in range(1, len(self.src_out)):
             # Get output pattern node
-            src_pat = self.src_pats[src_idx]
+            src_pat = self.src_out[src_idx]
 
             # Collect matched expression nodes
             expr_matched = set(pat_to_expr.values())
@@ -163,6 +169,43 @@ class ExprRewriter:
                 return []
 
         return output_matched
+
+    def match_variadic(self, src_var: Variadic, expr: relay.Expr, pat_to_expr: PatExprMap,
+                       succ_list: SuccListMap) -> List[relay.Expr]:
+        # Search for first match of field pattern
+        field_pat = src_var.pat
+        fst_match = self.match_one(field_pat, expr, {})
+        if fst_match is None:
+            return []  # no expression could be a match
+
+        # Instantiate template pattern and actually matches the expression
+        fst_inst = src_var.instantiate()
+        env = Env()
+        if src_var.index is not None:
+            env = env + (src_var.index, 0)
+        assert Matcher(pat_to_expr).match(fst_inst, fst_match, env)
+
+        # Find candidate pattern-expression pair
+        expr_matched = set(pat_to_expr.values())
+        stack: List[Tuple[Pattern, relay.Expr]] = []
+
+        def add_succ(p: Pattern, e: relay.Expr):
+            if e not in succ_list:
+                return
+            for ps in p.succ:
+                if not ps.in_src:
+                    continue
+                for es in succ_list[expr]:
+                    if es in expr_matched or es in self.history:
+                        continue  # matched expression cannot be matched again
+                    stack.append((p.succ[0], es))
+                    if not isinstance(p, self.reusable_node):
+                        # for non-reusable nodes, only the first successor expression node
+                        # could match
+                        break
+                break
+
+        pass
 
     @staticmethod
     def build_succ_list(expr: relay.Expr) -> SuccListMap:
@@ -336,8 +379,8 @@ class _RewriteMutator(relay.ExprMutator):
 class _SinglePatRewriter(relay.ExprMutator):
     def __init__(self, rewriter: ExprRewriter):
         super().__init__()
-        self.src_pat = rewriter.src_pats[0]
-        self.tgt_pat = rewriter.tgt_pats[0]
+        self.src_pat = rewriter.src_out[0]
+        self.tgt_pat = rewriter.tgt_out[0]
 
     def visit(self, expr: relay.Expr):
         # Directly return if it has been visited before

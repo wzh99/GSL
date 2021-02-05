@@ -473,8 +473,6 @@ class PatternVisitor(Generic[ArgType]):
             ret = self.visit_const(pat, arg)
         elif isinstance(pat, Call):
             ret = self.visit_call(pat, arg)
-        elif isinstance(pat, Op):
-            ret = self.visit_op(pat, arg)
         elif isinstance(pat, Tup):
             ret = self.visit_tuple(pat, arg)
         elif isinstance(pat, GetItem):
@@ -498,12 +496,8 @@ class PatternVisitor(Generic[ArgType]):
         pass
 
     def visit_call(self, call: Call, arg: ArgType) -> Any:
-        self.visit(call.op, arg)
         for a in call.args:
             self.visit(a, arg)
-
-    def visit_op(self, op: Op, arg: ArgType) -> Any:
-        pass
 
     def visit_tuple(self, tup: Tup, arg: ArgType) -> Any:
         for f in tup.fields:
@@ -517,6 +511,10 @@ class PatternVisitor(Generic[ArgType]):
 
     def visit_get_instance(self, get_inst: GetInstance, arg: ArgType) -> Any:
         self.visit(get_inst.var, arg)
+
+    # Visitor will not dispatch this method
+    def visit_op(self, op: Op, arg: ArgType) -> Any:
+        pass
 
 
 class _PatInst(PatternVisitor[None]):

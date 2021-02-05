@@ -227,6 +227,29 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_merge_element_wise_variadic(self):
+        print('Variadic Merge ReLU')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        relu1 = relay.nn.relu(x)
+        w1 = relay.var('w1', shape=(2, 2, 3, 3))
+        conv1 = relay.nn.conv2d(relu1, w1, padding=(1, 1, 1, 1))
+        relu2 = relay.nn.relu(x)
+        w2 = relay.var('w2', shape=(2, 2, 3, 3))
+        conv2 = relay.nn.conv2d(relu2, w2, padding=(1, 1, 1, 1))
+        relu3 = relay.nn.relu(x)
+        w3 = relay.var('w2', shape=(2, 2, 3, 3))
+        conv3 = relay.nn.conv2d(relu3, w3, padding=(1, 1, 1, 1))
+        y = relay.concatenate([conv1, conv2, conv3], 1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.merge_element_wise_variadic()
+        wl = subst(wl)
+        self.assertTrue(True)
+
     def test_parallel_conv(self):
         print('Parallel Conv')
 
@@ -400,6 +423,7 @@ if __name__ == '__main__':
         # RuleTest('test_conv_batch_norm_sequential'),
         # RuleTest('test_conv_batch_norm'),
         # RuleTest('test_merge_element_wise'),
+        # RuleTest('test_merge_element_wise_variadic'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_parallel_dense'),
