@@ -173,4 +173,5 @@ class Matcher:
         return True
 
     def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
-        raise RuntimeError('Unreachable.')
+        pat = eval_get_inst(get_inst, self.pat_to_expr, env)
+        return self.match(pat, expr, env)

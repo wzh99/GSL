@@ -144,7 +144,8 @@ class _SrcPatChecker(PatternVisitor[Env]):
                 self.visit(t, new_env)
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
-        raise ValueError('Cannot get instance of variadic in source pattern.')
+        super().visit_get_instance(get_inst, env)
+        self.attr_checker.visit(get_inst.index, env)
 
 
 class _SrcAttrChecker(AttrVisitor[Env]):
