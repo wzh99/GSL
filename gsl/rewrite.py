@@ -1,11 +1,7 @@
 from typing import Set
 
-from tvm import ir, relay
+from .match import *
 
-from . import util
-from .pat import *
-
-PatExprMap = Dict[Pattern, relay.Expr]
 SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
@@ -81,7 +77,7 @@ class ExprRewriter:
                     continue
 
                 # Use first pattern to roughly locate the subgraph
-                matcher = _ExprMatcher(pat_to_expr.copy())
+                matcher = Matcher(pat_to_expr.copy())
                 res = matcher.match(pat, cur_expr, Env())
                 if not res:
                     continue  # even first pattern is not matched, skip this expression
@@ -140,7 +136,7 @@ class ExprRewriter:
                     continue
 
                 # Match pattern with expression
-                matcher = _ExprMatcher(pat_to_expr.copy())
+                matcher = Matcher(pat_to_expr.copy())
                 res = matcher.match(src_pat, e, Env())
                 if not res:
                     continue
@@ -222,14 +218,14 @@ class _RelayBuilder(PatternVisitor[Env]):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
-            value = _AttrEvaluator(self.pat_to_expr).visit(const.value, env)
+            value = AttrEvaluator(self.pat_to_expr).visit(const.value, env)
         else:
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: Call, env: Env) -> Any:
         args = [self.visit(a, env) for a in call.args]
-        attrs = dict([(name, _AttrEvaluator(self.pat_to_expr).visit(attr, env))
+        attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr, env))
                       for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op, env)
         func = spec.get_func(op_name)
@@ -254,7 +250,7 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: GetItem, env: Env) -> Any:
         tup = self.visit(getitem.tup, env)
-        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
+        idx = AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
         return tup[idx]
 
 
@@ -324,7 +320,7 @@ class _SinglePatRewriter(relay.ExprMutator):
 
         # Match pattern with this expression
         pat_to_expr: PatExprMap = {}
-        matcher = _ExprMatcher(pat_to_expr)
+        matcher = Matcher(pat_to_expr)
         if not matcher.match(self.src_pat, new_expr, Env()):
             return new_expr
 
@@ -332,241 +328,3 @@ class _SinglePatRewriter(relay.ExprMutator):
         new_expr = _RelayBuilder(pat_to_expr).visit(self.tgt_pat, Env())
         self.memo_map[expr] = new_expr
         return new_expr
-
-
-class _ExprMatcher:
-    def __init__(self, pat_to_expr: PatExprMap):
-        self.pat_to_expr = pat_to_expr
-        self.expr_matched = set(pat_to_expr.values())
-
-    def match(self, pat: Pattern, expr: relay.Expr, env: Env) -> bool:
-        # Already matched, use history record
-        if pat in self.pat_to_expr:
-            return self.pat_to_expr[pat] == expr
-
-        # Reject if the expression has been matched with another node
-        if expr in self.expr_matched:
-            return False
-
-        # Try matching according to pattern node type
-        if isinstance(pat, Wildcard):
-            res = True
-        elif isinstance(pat, Var):
-            res = self.match_var(pat, expr, env)
-        elif isinstance(pat, Const):
-            res = self.match_const(pat, expr, env)
-        elif isinstance(pat, Call):
-            res = self.match_call(pat, expr, env)
-        elif isinstance(pat, Tup):
-            res = self.match_tuple(pat, expr, env)
-        elif isinstance(pat, GetItem):
-            res = self.match_getitem(pat, expr, env)
-        elif isinstance(pat, Variadic):
-            res = self.match_variadic(pat, expr, env)
-        elif isinstance(pat, GetInstance):
-            res = self.match_get_inst(pat, expr, env)
-        else:
-            res = False
-
-        # Add to record if matched
-        if res:
-            self.pat_to_expr[pat] = expr
-            self.expr_matched.add(expr)
-        return res
-
-    def match_var(self, var: Var, expr: relay.Expr, env: Env) -> bool:
-        # Match variable node
-        if not isinstance(expr, relay.Var):
-            return False
-
-        # Match attributes
-        for name, attr in var.attrs.items():
-            if not self._match_attr(attr, _AttrEvaluator.get_expr_attr(expr, name), env):
-                return False
-
-        return True
-
-    def match_const(self, const: Const, expr: relay.Expr, env: Env) -> bool:
-        # Match constant node
-        if not isinstance(expr, relay.Constant):
-            return False
-
-        # Match value if provided
-        expr_val = expr.data.asnumpy()
-        if isinstance(const.value, np.ndarray):
-            if not np.array_equal(const.value, expr_val):
-                return False
-        if isinstance(const.value, Attr):
-            pat_val = _AttrEvaluator(self.pat_to_expr).visit(const.value, env)
-            if not np.array_equal(pat_val, expr_val):
-                return False
-
-        return True
-
-    def match_call(self, call: Call, expr: relay.Expr, env: Env) -> bool:
-        # Match call node
-        if not isinstance(expr, relay.Call):
-            return False
-
-        # Match op
-        # If op matches, the number of arguments also matches
-        if not self.match_op(call.op, expr.op):
-            return False
-
-        # Match arguments
-        # Arguments must be matched before attributes, because attribute matching may depend on
-        # match result of arguments.
-        for pat_arg, expr_arg in zip(call.args, expr.args):
-            if not self.match(pat_arg, expr_arg, env):
-                return False
-
-        # Match attributes
-        for name, attr in call.attrs.items():
-            if (expr.attrs is None) or (name not in expr.attrs.keys()):
-                raise RuntimeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
-                )
-            if not self._match_attr(attr, expr.attrs[name], env):
-                return False
-
-        return True
-
-    def match_op(self, pat_op: Op, expr_op: ir.Op) -> bool:
-        if isinstance(pat_op, ConcreteOp):
-            return pat_op.name == expr_op.name
-        elif isinstance(pat_op, OpWithFlag):
-            matched = spec.match_flag(expr_op.name, pat_op.flag)
-            if matched:
-                self.pat_to_expr[pat_op] = expr_op
-            return matched
-        else:
-            raise RuntimeError('Unreachable.')
-
-    def _match_attr(self, pat_attr: Attr, expr_attr, env: Env) -> bool:
-        pat_val = _AttrEvaluator(self.pat_to_expr).visit(pat_attr, env)
-        pat_val = util.cvt_ir_value(pat_val)
-        expr_val = util.cvt_ir_value(expr_attr)
-        return self._match_val(pat_val, expr_val)
-
-    @classmethod
-    def _match_val(cls, pat_val, expr_val) -> bool:
-        if pat_val is None:
-            return True  # `None` matches any value
-        elif isinstance(pat_val, (int, float, str)):
-            return pat_val == expr_val
-        elif isinstance(pat_val, (tuple, list)) and isinstance(expr_val, (tuple, list)):
-            if len(pat_val) != len(expr_val):
-                return False
-            for p, e in zip(pat_val, expr_val):
-                if not cls._match_val(p, e):
-                    return False
-            return True
-        else:
-            return False
-
-    def match_tuple(self, tup: Tup, expr: relay.Expr, env: Env) -> bool:
-        # Match tuple node
-        if not isinstance(expr, relay.Tuple):
-            return False
-
-        # Check number of fields
-        if len(tup.fields) != len(expr.fields):
-            return False
-
-        # Match fields
-        for pat_f, expr_f in zip(tup.fields, expr.fields):
-            if not self.match(pat_f, expr_f, env):
-                return False
-
-        return True
-
-    def match_getitem(self, getitem: GetItem, expr: relay.Expr, env: Env) -> bool:
-        if not isinstance(expr, relay.TupleGetItem):
-            return False
-        if not self.match(getitem.tup, expr.tuple_value, env):
-            return False
-        idx = _AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
-        return idx == expr.index
-
-    def match_variadic(self, var: Variadic, expr: relay.Expr, env: Env) -> bool:
-        pass
-
-    def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
-        pass
-
-
-class _AttrEvaluator(AttrVisitor[Env]):
-    def __init__(self, pat_to_expr: PatExprMap):
-        self.pat_to_expr = pat_to_expr
-
-    @staticmethod
-    def get_expr_attr(expr: relay.Expr, name: str):
-        expr_ty = expr.checked_type
-        if not isinstance(expr_ty, ir.TensorType):
-            raise ValueError(
-                'Cannot get attribute from an expression not of tensor type.'
-            )
-        if name == 'shape':
-            return expr_ty.concrete_shape
-        elif name == 'dtype':
-            return expr_ty.dtype
-        else:
-            raise RuntimeError('Unreachable.')
-
-    def visit_any(self, a: AnyAttr, env: Env):
-        return None
-
-    def visit_const(self, const: ConstAttr, env: Env):
-        return const.value
-
-    def visit_getattr(self, get_attr: GetAttr, env: Env):
-        # Get actual expression from map
-        pat = get_attr.pat
-        if isinstance(pat, GetInstance):  # map template to instance
-            pat = eval_get_inst(pat, self.pat_to_expr, env)
-        name = get_attr.name
-        expr = self.pat_to_expr[pat]
-
-        # Access attribute according to type of node
-        if name in Pattern.shared_attrs:
-            return self.get_expr_attr(expr, name)
-        elif isinstance(pat, Call):
-            if (expr.attrs is None) or (name not in expr.attrs.keys()):
-                raise RuntimeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
-                )
-            return expr.attrs[name]
-        elif isinstance(pat, Variadic) and name == 'length':
-            return len(pat)
-        else:
-            raise RuntimeError('Unreachable.')
-
-    def visit_tuple(self, tup_attr: TupleAttr, env: Env):
-        return tuple([self.visit(f, env) for f in tup_attr.fields])
-
-    def visit_getitem(self, getitem: GetItemAttr, env: Env):
-        return self.visit(getitem.seq, env)[self.visit(getitem.index, env)]
-
-    def visit_binary(self, binary: BinaryAttr, env: Env):
-        lv, rv = self.visit(binary.lhs, env), self.visit(binary.rhs, env)
-        ty_tup = (lv.__class__, rv.__class__)
-        bin_op = binary.op
-        op_func = BinaryAttr.eval_func[bin_op]
-        if ty_tup not in op_func:
-            raise RuntimeError(
-                'Operator \'{}\' not defined for type ({}, {})'.format(
-                    bin_op.value, ty_tup[0], ty_tup[1]
-                )
-            )
-        return op_func[ty_tup](lv, rv)
-
-    def visit_symbol(self, sym: Symbol, env: Env) -> Any:
-        val = env[sym]
-        if val is None:
-            raise RuntimeError('Symbol \'{}\' not found in environment.'.format(sym))
-        return val
-
-
-def eval_get_inst(get_inst: GetInstance, pat_to_expr: PatExprMap, env: Env) -> Pattern:
-    idx = _AttrEvaluator(pat_to_expr).visit(get_inst.index, env)
-    return get_inst.var(idx, get_inst.t)
