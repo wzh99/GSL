@@ -239,7 +239,7 @@ class RuleTest(unittest.TestCase):
         w2 = relay.var('w2', shape=(2, 2, 3, 3))
         conv2 = relay.nn.conv2d(relu2, w2, padding=(1, 1, 1, 1))
         relu3 = relay.nn.relu(x)
-        w3 = relay.var('w2', shape=(2, 2, 3, 3))
+        w3 = relay.var('w3', shape=(2, 2, 3, 3))
         conv3 = relay.nn.conv2d(relu3, w3, padding=(1, 1, 1, 1))
         y = relay.concatenate([conv1, conv2, conv3], 1)
         wl = Workload.from_expr(y, {'x'})
@@ -248,6 +248,7 @@ class RuleTest(unittest.TestCase):
         # Apply substitution
         subst = rule.merge_element_wise_variadic()
         wl = subst(wl)
+        print(wl.mod)
         self.assertTrue(True)
 
     def test_parallel_conv(self):
@@ -382,7 +383,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         for subst in [
-            rule.merge_element_wise(),
+            rule.merge_element_wise_variadic(),
             rule.simplify_batch_norm(),
             rule.conv_mul(),
             rule.bias_add_add(),

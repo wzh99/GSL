@@ -6,16 +6,16 @@ SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
 class ExprRewriter:
-    def __init__(self, src_out: List[Pattern], tgt_out: List[Pattern], is_var: bool,
+    def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], is_var: bool,
                  fast_mode: bool):
-        self.src_out = src_out
-        self.tgt_out = tgt_out
+        self.src_outs = src_outs
+        self.tgt_outs = tgt_outs
         self.is_var = is_var
         self.fast_mode = fast_mode
         self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
-        if self.fast_mode and len(self.src_out) == 1 and not self.is_var:
+        if self.fast_mode and len(self.src_outs) == 1 and not self.is_var:
             return _SinglePatRewriter(self).visit(expr)
 
         # Greedily match all subgraphs
@@ -27,9 +27,11 @@ class ExprRewriter:
             pat_to_expr: PatExprMap = dict()
             if self.is_var:  # match variadic with different procedure
                 # noinspection PyTypeChecker
-                src_matched = self.match_variadic(self.src_out[0], expr, pat_to_expr, succ_list)
+                src_matched = self.match_variadic(self.src_outs[0], expr, pat_to_expr, succ_list)
+                if len(src_matched) == 0:
+                    break
             else:
-                fst_matched = self.match_one(self.src_out[0], expr, pat_to_expr)
+                fst_matched = self.match_one(self.src_outs[0], expr, pat_to_expr)
                 if fst_matched is None:
                     break  # even the first output pattern node is not matched
                 src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
@@ -45,7 +47,13 @@ class ExprRewriter:
                 continue
 
             # Generate target expressions and map source to them
-            tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env()) for tgt in self.tgt_out]
+            if self.is_var:
+                # noinspection PyTypeChecker
+                tgt_expr = self.build_variadic(self.src_outs[0], self.tgt_outs[0], pat_to_expr)
+            else:
+                tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env())
+                            for tgt in self.tgt_outs]
+            self.history.update(tgt_expr)
             expr_map = dict(zip(src_matched, tgt_expr))
             self.clear_pat()
 
@@ -56,9 +64,9 @@ class ExprRewriter:
         return expr
 
     def clear_pat(self):
-        for p in self.src_out:
+        for p in self.src_outs:
             p.clear()
-        for p in self.tgt_out:
+        for p in self.tgt_outs:
             p.clear()
 
     def match_one(self, pat: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
@@ -103,41 +111,45 @@ class ExprRewriter:
 
         return None
 
-    reusable_node = (Wildcard, Var)
+    reusable_pat = (Wildcard, Var)
 
     def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:
+        # Initialize stack and its operation
+        expr_matched = set()
+        stack: List[Tuple[Pattern, relay.Expr]] = []
+
+        # Find candidate node-expression pair where the node is connected to matched ones.
+        # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
+        # there must exist some node that satisfies the condition.
+        def add_succ(pat: Pattern, expr: relay.Expr):
+            if expr not in succ_list:
+                return
+            for ps in pat.succ:
+                if ps in pat_to_expr:
+                    continue  # successor pattern already matched
+                if ps.src_idx != src_idx:
+                    continue  # not source or not the source pattern concerned
+                for es in succ_list[expr]:
+                    if es in expr_matched or es in self.history:
+                        continue  # matched expression cannot be matched again
+                    stack.append((ps, es))
+                    if not isinstance(pat, self.reusable_pat):
+                        # for non-reusable nodes, only the first successor expression node
+                        # could match
+                        break
+                break  # only need to visit first unmatched successor pattern node
+
+        # Match each output pattern
         output_matched = [fst_matched]
-        for src_idx in range(1, len(self.src_out)):
+        for src_idx in range(1, len(self.src_outs)):
             # Get output pattern node
-            src_pat = self.src_out[src_idx]
+            src_pat = self.src_outs[src_idx]
 
             # Collect matched expression nodes
-            expr_matched = set(pat_to_expr.values())
+            expr_matched.update(pat_to_expr.values())
 
-            # Find candidate node-expression pair where the node is connected to matched ones.
-            # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
-            # there must exist some node that satisfies the condition.
-            stack: List[Tuple[Pattern, relay.Expr]] = []
-
-            def add_succ(pat: Pattern, expr: relay.Expr):
-                if expr not in succ_list:
-                    return
-                for ps in pat.succ:
-                    if ps in pat_to_expr:
-                        continue  # successor pattern already matched
-                    if ps.src_idx != src_idx:
-                        continue  # not source or not the source pattern concerned
-                    for es in succ_list[expr]:
-                        if es in expr_matched or es in self.history:
-                            continue  # matched expression cannot be matched again
-                        stack.append((ps, es))
-                        if not isinstance(pat, self.reusable_node):
-                            # for non-reusable nodes, only the first successor expression node
-                            # could match
-                            break
-                    break  # only need to visit first unmatched successor pattern node
-
+            # Push pattern-expression pair to stack
             for p, e in pat_to_expr.items():
                 add_succ(p, e)
 
@@ -180,32 +192,78 @@ class ExprRewriter:
 
         # Instantiate template pattern and actually matches the expression
         fst_inst = src_var.instantiate()
-        env = Env()
-        if src_var.index is not None:
-            env = env + (src_var.index, 0)
+        env = Env() if src_var.index is None else Env(symbol=src_var.index, value=0)
         assert Matcher(pat_to_expr).match(fst_inst, fst_match, env)
 
         # Find candidate pattern-expression pair
-        expr_matched = set(pat_to_expr.values())
         stack: List[Tuple[Pattern, relay.Expr]] = []
+        expr_matched = set()
 
-        def add_succ(p: Pattern, e: relay.Expr):
-            if e not in succ_list:
+        def add_succ(pat: Pattern, ex: relay.Expr):
+            if ex not in succ_list:
                 return
-            for ps in p.succ:
-                if not ps.in_src:
+            if len(pat.src_succ) == 0:
+                return
+            p_succ = pat.src_succ[0]
+            for es in succ_list[ex]:
+                if es in expr_matched or es in self.history:
                     continue
-                for es in succ_list[expr]:
-                    if es in expr_matched or es in self.history:
-                        continue  # matched expression cannot be matched again
-                    stack.append((p.succ[0], es))
-                    if not isinstance(p, self.reusable_node):
-                        # for non-reusable nodes, only the first successor expression node
-                        # could match
-                        break
+                stack.append((p_succ, es))
+                if not isinstance(pat, self.reusable_pat):
+                    break
+
+        # Find more matches of variadic pattern
+        out_matched = [fst_match]
+        count = 1
+        while True:
+            # Collect all matched expressions
+            expr_matched.update(pat_to_expr.values())
+
+            # Push pattern-expression pair to stack
+            for p, e in pat_to_expr.items():
+                add_succ(p, e)
+
+            # Backtrack to find the initial field pattern
+            found = False
+            while len(stack) > 0:
+                # Pop one pair from stack
+                p, e = stack.pop()
+
+                # Push successors to stack if field pattern is not reached
+                if p not in src_var.pat_inst:
+                    add_succ(p, e)
+                    continue
+
+                # Try matching field with expression
+                env = Env() if src_var.index is None else Env(symbol=src_var.index, value=count)
+                matcher = Matcher(pat_to_expr.copy())
+                res = matcher.match(field_pat, e, env)
+                if not res:
+                    continue
+
+                # Instantiate pattern and actually match the expression
+                matcher = Matcher(pat_to_expr)
+                pat_inst = src_var.instantiate()
+                assert matcher.match(pat_inst, e, env)
+                out_matched.append(e)
+                count += 1
+                found = True
                 break
 
-        pass
+            # No match for this pattern, the whole match failed
+            if not found:
+                return out_matched
+
+    @classmethod
+    def build_variadic(cls, src_var: Variadic, tgt_var: Variadic, pat_to_expr: PatExprMap) \
+            -> List[relay.Expr]:
+        length = len(src_var)
+        tgt_outs: List[relay.Expr] = []
+        for i in range(length):
+            env = Env() if tgt_var.index is None else Env(symbol=tgt_var.index, value=i)
+            inst = tgt_var.instantiate()
+            tgt_outs.append(_RelayBuilder(pat_to_expr).visit(inst, env))
+        return tgt_outs
 
     @staticmethod
     def build_succ_list(expr: relay.Expr) -> SuccListMap:
@@ -217,7 +275,7 @@ class ExprRewriter:
     def check_succ(cls, pat_to_expr: PatExprMap, succ_list: SuccListMap) -> bool:
         for p, e in pat_to_expr.items():
             # Skip variables, wildcards and output nodes because they can always be reused
-            if isinstance(p, cls.reusable_node) or p.is_output:
+            if isinstance(p, cls.reusable_pat) or p.is_output:
                 continue
 
             # From our matching algorithm, unmatched successor expression nodes could only be last
@@ -379,8 +437,8 @@ class _RewriteMutator(relay.ExprMutator):
 class _SinglePatRewriter(relay.ExprMutator):
     def __init__(self, rewriter: ExprRewriter):
         super().__init__()
-        self.src_pat = rewriter.src_out[0]
-        self.tgt_pat = rewriter.tgt_out[0]
+        self.src_pat = rewriter.src_outs[0]
+        self.tgt_pat = rewriter.tgt_outs[0]
 
     def visit(self, expr: relay.Expr):
         # Directly return if it has been visited before

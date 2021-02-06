@@ -14,39 +14,39 @@ class Substitution:
     Represents a graph substitution rule.
     """
 
-    def __init__(self, src_out: Union[Pattern, List[Pattern]],
-                 tgt_out: Union[Pattern, List[Pattern]]):
+    def __init__(self, src_outs: Union[Pattern, List[Pattern]],
+                 tgt_outs: Union[Pattern, List[Pattern]]):
         """
         Constructor.
 
-        :param src_out: A single source pattern, or a list of source patterns. The patterns should
+        :param src_outs: A single source pattern, or a list of source patterns. The patterns should
             not be used as source nor target patterns of other substitutions. If variadic pattern
             is provided, it must be the only pattern.
-        :param tgt_out: A single target pattern, or a list of target patterns. The patterns can
+        :param tgt_outs: A single target pattern, or a list of target patterns. The patterns can
             only be used in source patterns of current substitution. Number of target patterns must
             exactly match source patterns, with i-th target pattern mapped to i-th source pattern.
             If variadic pattern is provided, it must be the only pattern.
         """
         # Convert source and target patterns to lists if necessary
-        if isinstance(src_out, Pattern):
-            src_out = [src_out]
-        if isinstance(tgt_out, Pattern):
-            tgt_out = [tgt_out]
+        if isinstance(src_outs, Pattern):
+            src_outs = [src_outs]
+        if isinstance(tgt_outs, Pattern):
+            tgt_outs = [tgt_outs]
 
         # Check if number of source and target pattern matches
-        if len(src_out) != len(tgt_out):
+        if len(src_outs) != len(tgt_outs):
             raise ValueError(
                 'Numbers of source and target patterns do not match.'
             )
 
         # Check source and target if variadic pattern is provided
         self.is_var = False
-        if any([isinstance(p, Variadic) for p in src_out]):
-            if len(src_out) != 1:
+        if any([isinstance(p, Variadic) for p in src_outs]):
+            if len(src_outs) != 1:
                 raise ValueError(
                     'Variadic must be the only one pattern of source.'
                 )
-            if len(tgt_out) != 1 or not isinstance(tgt_out[0], Variadic):
+            if len(tgt_outs) != 1 or not isinstance(tgt_outs[0], Variadic):
                 raise ValueError(
                     'Variadic must be the only one pattern of target.'
                 )
@@ -54,9 +54,9 @@ class Substitution:
 
         # Check source patterns
         src_pats: Set[Pattern] = set()
-        for i in range(len(src_out)):
+        for i in range(len(src_outs)):
             # Check if output nodes have no successors
-            out = src_out[i]
+            out = src_outs[i]
             if len(out.succ) != 0:
                 raise ValueError('Source output node cannot have successors.')
 
@@ -77,7 +77,7 @@ class Substitution:
 
         # Check connectivity of variadic source
         if self.is_var:
-            var = src_out[0]
+            var = src_outs[0]
             non_tpl = src_pats.difference([var], var.templates)
             if len(non_tpl) == 0:
                 raise ValueError(
@@ -86,12 +86,12 @@ class Substitution:
 
         # Check target patterns
         tgt_checker = _TgtPatChecker(src_pats)
-        for tgt in tgt_out:
+        for tgt in tgt_outs:
             tgt_checker.visit(tgt, Env())
 
         # Store source and target patterns
-        self.src_out = src_out
-        self.tgt_out = tgt_out
+        self.src_outs = src_outs
+        self.tgt_outs = tgt_outs
 
     def __call__(self, wl: Workload, fast_mode: bool = False, fold_params: bool = True,
                  new_name: Optional[str] = None) -> Workload:
@@ -111,7 +111,7 @@ class Substitution:
             new_name = wl.name
 
         # Apply substitution to graph
-        rewriter = ExprRewriter(self.src_out, self.tgt_out, self.is_var, fast_mode)
+        rewriter = ExprRewriter(self.src_outs, self.tgt_outs, self.is_var, fast_mode)
         mod = _SubstFuncPass(rewriter)(wl.mod)
         new_wl = Workload(mod, wl.params, name=new_name)
         if fold_params:

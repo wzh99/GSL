@@ -76,13 +76,14 @@ class Matcher:
             return False
 
         # Match op
-        # If op matches, the number of arguments also matches
         if not self.match_op(call.op, expr.op):
             return False
 
         # Match arguments
         # Arguments must be matched before attributes, because attribute matching may depend on
         # match result of arguments.
+        if len(call.args) != len(expr.args):
+            return False
         for pat_arg, expr_arg in zip(call.args, expr.args):
             if not self.match(pat_arg, expr_arg, env):
                 return False
