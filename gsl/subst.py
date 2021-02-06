@@ -154,22 +154,22 @@ class _SrcPatChecker(PatternVisitor[Env]):
         self.attr_checker.visit(getitem.index, env)
 
     def visit_variadic(self, var: Variadic, env: Env) -> Any:
-        # Add index to environment and check pattern
+        # Add index to environment
         new_env = env
         if var.index is not None:
             new_env = env + (var.index, True)
+
+        # Check first and template list
+        for t in var.first:
+            if t is not None:
+                self.visit(t, new_env)
+        for t in var.templates:
+            self.visit(t, new_env)
         self.visit(var.pat, new_env)
 
         # Check length
         if var.len is not None:
             self.attr_checker.visit(var.len, env)
-
-        # Check template and first list
-        for t in var.templates:
-            self.visit(t, new_env)
-        for t in var.first:
-            if t is not None:
-                self.visit(t, new_env)
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
@@ -265,7 +265,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         for t in var.templates:
             self.visit(t, new_env)
             if var.use_first(t):
-                self.visit(var.get_first(t), new_env)
+                self.visit(var.tpl_to_fst[t], new_env)
 
         # Check length
         if not var.is_output:

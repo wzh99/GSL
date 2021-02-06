@@ -359,7 +359,7 @@ class Variadic(Pattern):
             templates = []
 
         # Map template to first
-        self.first_map: Dict[Pattern, Pattern] = dict()
+        self.tpl_to_fst: Dict[Pattern, Pattern] = dict()
         for i in range(len(templates)):
             t, f = templates[i], first[i]
             if isinstance(t, Variadic):
@@ -377,7 +377,7 @@ class Variadic(Pattern):
                     'Template and first pattern must be of same type.'
                 )
             t.is_template = True
-            self.first_map[t] = f
+            self.tpl_to_fst[t] = f
         self.templates: List[Pattern] = templates
         self.first: List[Pattern] = first
 
@@ -435,21 +435,31 @@ class Variadic(Pattern):
         return t in self.templates
 
     def use_first(self, t: Pattern) -> bool:
-        return t is not self.first_map[t]
-
-    def get_first(self, t: Pattern) -> Pattern:
-        return self.first_map[t]
+        return t is not self.tpl_to_fst[t]
 
     def instantiate(self) -> Pattern:
-        inst = _PatInst(self).visit(self.pat, None)
+        # Instantiate templates
+        visitor = _PatInst(self)
+        inst = visitor.visit(self.pat, None)
+        inst_map = visitor.map
+
+        # Maps templates to first instances
+        if len(self) == 0:
+            for tpl in self.templates:
+                if self.use_first(tpl):
+                    inst_map[tpl] = self.tpl_to_fst[tpl]
+
+        # Add record
         self.pat_inst.append(inst)
+        self.tpl_inst.append(inst_map)
+
         return inst
 
     def rollback(self):
         self.pat_inst.pop()
         inst_map = self.tpl_inst.pop()
         for tpl, inst in inst_map.items():
-            if inst is not self.get_first(tpl):
+            if inst not in self.first:
                 for p in inst.pred:
                     p.succ.remove(inst)
 
@@ -527,15 +537,11 @@ class _PatInst(PatternVisitor[None]):
         self.var = var
         self.index = len(var)
         self.map: Dict[Pattern, Pattern] = {}
-        var.tpl_inst.append(self.map)
 
     def visit(self, pat: Pattern, arg: None) -> Pattern:
         if self.var.has_template(pat):  # current pattern is a template
             if self.index == 0 and self.var.use_first(pat):  # this template has first instance
-                fst = self.var.get_first(pat)
-                self.map[pat] = fst  # first instance is not a template
-                for p in fst.pred:
-                    p.succ.append(fst)
+                return self.var.tpl_to_fst[pat]
             else:
                 # Instantiate template and copy attributes to instance
                 inst: Pattern = super().visit(pat, arg)
@@ -543,7 +549,7 @@ class _PatInst(PatternVisitor[None]):
                 inst.src_idx = pat.src_idx
                 inst.in_tgt = pat.in_tgt
                 self.map[pat] = inst  # map template to created instance
-            return self.map[pat]
+                return inst
         else:
             return pat  # not a template, keep it
 

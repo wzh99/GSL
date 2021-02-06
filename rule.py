@@ -255,6 +255,37 @@ def parallel_conv():
     return Substitution([conv1, conv2], [split[0], split[1]])
 
 
+def parallel_conv_variadic():
+    # Input
+    x = Wildcard()
+    w1 = Var()
+    w = Var(shape=(None, None, w1.shape[2], w1.shape[3]))
+
+    # Source pattern
+    conv1 = Conv2D(x, w1)
+    conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+    src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
+
+    # Target pattern
+    i = Symbol()
+    get_inst = src(i, w)
+    concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, length=src.length),
+                         axis=0)
+    conv = Conv2D(x, concat, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+
+    i = Symbol()
+    j = Symbol()
+    split = Split(conv, axis=1,
+                  indices_or_sections=VariadicAttr(Sum(src(j, w).shape[0], j, i + 1),
+                                                   index=i, length=src.length - 1))
+    i = Symbol()
+    item = split[i]
+    tgt = Variadic(item, templates=[item], index=i)
+
+    # Build substitution
+    return Substitution(src, tgt)
+
+
 def parallel_conv_expand_kernels():
     # Input
     x = Wildcard()
@@ -327,12 +358,9 @@ def parallel_dense_variadic():
                                  axis=0))
     i = Symbol()
     j = Symbol()
-    split = Split(dense,
-                  indices_or_sections=VariadicAttr(
-                      Sum(src(j, w).shape[0], j, i + 1),
-                      index=i, length=src.length - 1
-                  ),
-                  axis=-1)
+    split = Split(dense, axis=-1,
+                  indices_or_sections=VariadicAttr(Sum(src(j, w).shape[0], j, i + 1),
+                                                   index=i, length=src.length - 1))
     i = Symbol()
     item = split[i]
     tgt = Variadic(item, templates=[item], index=i)
