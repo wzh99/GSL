@@ -307,3 +307,35 @@ def parallel_dense():
 
     # Build substitution
     return Substitution([dense1, dense2], [split[0], split[1]])
+
+
+def parallel_dense_variadic():
+    # Input
+    x = Wildcard()
+    w1 = Var()
+    w = Var(shape=(None, w1.shape[1]))
+
+    # Source pattern
+    dense = Dense(x, w)
+    src = Variadic(dense, templates=[dense, w], first=[None, w1])
+
+    # Target pattern
+    i = Symbol()
+    get_inst = src(i, w)
+    dense = Dense(x, Concatenate(Variadic(get_inst, templates=[get_inst], index=i,
+                                          length=src.length),
+                                 axis=0))
+    j = Symbol()
+    k = Symbol()
+    split = Split(dense,
+                  indices_or_sections=VariadicAttr(
+                      Sum(src(k, w).shape[0], k, j + 1),
+                      index=j, length=src.length - 1
+                  ),
+                  axis=-1)
+    i = Symbol()
+    item = split[i]
+    tgt = Variadic(item, templates=[item], index=i)
+
+    # Build substitution
+    return Substitution(src, tgt)

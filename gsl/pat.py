@@ -329,8 +329,8 @@ class Variadic(Pattern):
             used for the i-th template at first match.
         :param index: Symbol that indicates the index of matched expression.
         :param length: An attribute expression that indicates how long the pattern will be. In
-            source pattern, it is ignored. In target pattern, it is required to specify the length
-            of constructed tuple.
+            source pattern, it is optional. If provided, the length of tuple will be checked.
+            In target pattern, it is required to specify the length of constructed tuple.
         """
         super().__init__()
 
@@ -367,13 +367,13 @@ class Variadic(Pattern):
                 raise ValueError(
                     'Template is not sub-pattern of field pattern.'
                 )
+            if f is None:
+                f = first[i] = t
             if t.__class__ != f.__class__:
                 raise TypeError(
                     'Template and first pattern must be of same type.'
                 )
             t.is_template = True
-            if f is None:
-                f = first[i] = t
             self.first_map[t] = f
         self.templates: List[Pattern] = templates
         self.first: List[Pattern] = first
@@ -402,7 +402,7 @@ class Variadic(Pattern):
             )
         return GetAttr(self, item)
 
-    def __getitem__(self, index: AttrConvertible, t: Pattern):
+    def __call__(self, index: AttrConvertible, t: Pattern):
         if not self.has_template(t):
             raise ValueError('Pattern is not template of this variadic.')
         return GetInstance(self, to_attr(index), t)
@@ -410,7 +410,7 @@ class Variadic(Pattern):
     def __len__(self) -> int:
         return len(self.pat_inst)
 
-    def __call__(self, idx: int, t: Pattern):
+    def get_instance(self, idx: int, t: Pattern):
         if idx >= len(self):
             raise RuntimeError(
                 'Index {} out of bound {}.'.format(idx, len(self))
@@ -424,16 +424,8 @@ class Variadic(Pattern):
 
     def clear(self):
         super().clear()
-
-        # Remove instances from their predecessors' successor list
-        for inst_map in self.tpl_inst:
-            for inst in inst_map.values():
-                for p in inst.pred:
-                    p.succ.remove(inst)
-
-        # Clear instance records
-        self.pat_inst.clear()
-        self.tpl_inst.clear()
+        while len(self.pat_inst) > 0:
+            self.rollback()
 
     def has_template(self, t: Pattern) -> bool:
         return t in self.templates
@@ -448,6 +440,14 @@ class Variadic(Pattern):
         inst = _PatInst(self).visit(self.pat, None)
         self.pat_inst.append(inst)
         return inst
+
+    def rollback(self):
+        self.pat_inst.pop()
+        inst_map = self.tpl_inst.pop()
+        for tpl, inst in inst_map.items():
+            if inst is not self.get_first(tpl):
+                for p in inst.pred:
+                    p.succ.remove(inst)
 
 
 class GetInstance(Pattern):

@@ -1,4 +1,5 @@
-from typing import Set
+from collections import deque
+from typing import Set, Deque
 
 from .match import *
 
@@ -117,7 +118,7 @@ class ExprRewriter:
                    succ_list: SuccListMap) -> List[relay.Expr]:
         # Initialize stack and its operation
         expr_matched = set()
-        stack: List[Tuple[Pattern, relay.Expr]] = []
+        queue: Deque[Tuple[Pattern, relay.Expr]] = deque()
 
         # Find candidate node-expression pair where the node is connected to matched ones.
         # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
@@ -133,7 +134,7 @@ class ExprRewriter:
                 for es in succ_list[expr]:
                     if es in expr_matched or es in self.history:
                         continue  # matched expression cannot be matched again
-                    stack.append((ps, es))
+                    queue.append((ps, es))
                     if not isinstance(pat, self.reusable_pat):
                         # for non-reusable nodes, only the first successor expression node
                         # could match
@@ -155,9 +156,9 @@ class ExprRewriter:
 
             # Backtrack until the source pattern is reached
             found = False
-            while len(stack) > 0:
+            while len(queue) > 0:
                 # Pick one pair from queue
-                p, e = stack.pop()
+                p, e = queue.popleft()
 
                 # Add successors to queue if output pattern is not reached
                 if p != src_pat:
@@ -185,18 +186,12 @@ class ExprRewriter:
     def match_variadic(self, src_var: Variadic, expr: relay.Expr, pat_to_expr: PatExprMap,
                        succ_list: SuccListMap) -> List[relay.Expr]:
         # Search for first match of field pattern
-        field_pat = src_var.pat
-        fst_match = self.match_one(field_pat, expr, {})
+        fst_match = self.match_one(src_var.instantiate(), expr, pat_to_expr)
         if fst_match is None:
             return []  # no expression could be a match
 
-        # Instantiate template pattern and actually matches the expression
-        fst_inst = src_var.instantiate()
-        env = Env() if src_var.index is None else Env(symbol=src_var.index, value=0)
-        assert Matcher(pat_to_expr).match(fst_inst, fst_match, env)
-
         # Find candidate pattern-expression pair
-        stack: List[Tuple[Pattern, relay.Expr]] = []
+        queue: Deque[Tuple[Pattern, relay.Expr]] = deque()
         expr_matched = set()
 
         def add_succ(pat: Pattern, ex: relay.Expr):
@@ -208,7 +203,7 @@ class ExprRewriter:
             for es in succ_list[ex]:
                 if es in expr_matched or es in self.history:
                     continue
-                stack.append((p_succ, es))
+                queue.append((p_succ, es))
                 if not isinstance(pat, self.reusable_pat):
                     break
 
@@ -225,9 +220,9 @@ class ExprRewriter:
 
             # Backtrack to find the initial field pattern
             found = False
-            while len(stack) > 0:
+            while len(queue) > 0:
                 # Pop one pair from stack
-                p, e = stack.pop()
+                p, e = queue.popleft()
 
                 # Push successors to stack if field pattern is not reached
                 if p not in src_var.pat_inst:
@@ -237,20 +232,19 @@ class ExprRewriter:
                 # Try matching field with expression
                 env = Env() if src_var.index is None else Env(symbol=src_var.index, value=count)
                 matcher = Matcher(pat_to_expr.copy())
-                res = matcher.match(field_pat, e, env)
+                res = matcher.match(src_var.instantiate(), e, env)
                 if not res:
+                    src_var.rollback()
                     continue
 
-                # Instantiate pattern and actually match the expression
-                matcher = Matcher(pat_to_expr)
-                pat_inst = src_var.instantiate()
-                assert matcher.match(pat_inst, e, env)
+                # Add matched expression to record
+                pat_to_expr.update(matcher.pat_to_expr)
                 out_matched.append(e)
                 count += 1
                 found = True
                 break
 
-            # No match for this pattern, the whole match failed
+            # No match for this pattern, the match end here
             if not found:
                 return out_matched
 

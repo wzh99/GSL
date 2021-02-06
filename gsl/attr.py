@@ -190,6 +190,44 @@ class Env:
         return self[sym] is not None
 
 
+class VariadicAttr(Attr):
+    """
+    A tuple that can accept any number of fields, each with similar pattern.
+    """
+
+    def __init__(self, attr: AttrConvertible, index: Optional[Symbol] = None,
+                 length: Optional[AttrConvertible] = None):
+        """
+        Constructor.
+
+        :param attr: Pattern of tuple fields.
+        :param index: Symbol mapping to index of tuple field.
+        :param length: Attribute expression specifying the length of tuple. In source pattern, it
+            will be checked if provided. In target pattern, it is required.
+        """
+        self.attr = to_attr(attr)
+        self.index = index
+        self.len = to_attr(length)
+
+
+class Sum(Attr):
+    """
+    Summation of attribute values in a given range
+    """
+
+    def __init__(self, attr: Attr, index: Symbol, length: AttrConvertible):
+        """
+        Constructor.
+
+        :param attr: Pattern of summed elements.
+        :param index:  Symbol mapping to iteration of summation.
+        :param length: Attribute expression specifying the length of summation.
+        """
+        self.attr = attr
+        self.index = index
+        self.len = None if length is None else to_attr(length)
+
+
 ArgType = TypeVar('ArgType')
 
 
@@ -209,6 +247,10 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_binary(attr, arg)
         elif isinstance(attr, Symbol):
             return self.visit_symbol(attr, arg)
+        elif isinstance(attr, VariadicAttr):
+            return self.visit_variadic(attr, arg)
+        elif isinstance(attr, Sum):
+            return self.visit_sum(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
@@ -230,7 +272,14 @@ class AttrVisitor(Generic[ArgType]):
         self.visit(getitem.index, arg)
 
     def visit_binary(self, binary: BinaryAttr, arg: ArgType) -> Any:
-        pass
+        self.visit(binary.lhs, arg)
+        self.visit(binary.rhs, arg)
 
     def visit_symbol(self, sym: Symbol, arg: ArgType) -> Any:
+        pass
+
+    def visit_variadic(self, var: VariadicAttr, arg: ArgType) -> Any:
+        pass
+
+    def visit_sum(self, s: Sum, arg: ArgType) -> Any:
         pass

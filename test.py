@@ -307,6 +307,27 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_parallel_dense_variadic(self):
+        print('Variadic Parallel Dense')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 4))
+        w1 = relay.var('w1', shape=(4, 4))
+        w2 = relay.var('w2', shape=(4, 4))
+        w3 = relay.var('w3', shape=(4, 4))
+        d1 = relay.nn.dense(x, w1)
+        d2 = relay.nn.dense(x, w2)
+        d3 = relay.nn.dense(x, w3)
+        y = relay.concatenate([d1, d2, d3], axis=-1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.parallel_dense_variadic()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_nasnet_block(self):
         print('Sequential Subst. on a Simplified NASNet Block')
 
@@ -404,7 +425,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         for subst in [
-            rule.parallel_dense(),
+            rule.parallel_dense_variadic(),
         ]:
             wl = subst(wl)
         wl.visualize()
@@ -428,6 +449,7 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_parallel_dense'),
+        # RuleTest('test_parallel_dense_variadic'),
         # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),

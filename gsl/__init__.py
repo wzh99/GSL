@@ -1,4 +1,4 @@
-from .attr import Symbol
+from .attr import Symbol, VariadicAttr, Sum
 from .fold import fold
 from .op import *
 from .pat import Wildcard, Var, OpWithFlag, Variadic, same_attr

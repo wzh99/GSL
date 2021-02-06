@@ -48,7 +48,7 @@ class Matcher:
 
         # Match attributes
         for name, attr in var.attrs.items():
-            if not self._match_attr(attr, AttrEvaluator.get_expr_attr(expr, name), env):
+            if not self.match_attr(attr, AttrEvaluator.get_expr_attr(expr, name), env):
                 return False
 
         return True
@@ -94,7 +94,7 @@ class Matcher:
                 raise RuntimeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
                 )
-            if not self._match_attr(attr, expr.attrs[name], env):
+            if not self.match_attr(attr, expr.attrs[name], env):
                 return False
 
         return True
@@ -109,28 +109,6 @@ class Matcher:
             return matched
         else:
             raise RuntimeError('Unreachable.')
-
-    def _match_attr(self, pat_attr: Attr, expr_attr, env: Env) -> bool:
-        pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr, env)
-        pat_val = util.cvt_ir_value(pat_val)
-        expr_val = util.cvt_ir_value(expr_attr)
-        return self._match_val(pat_val, expr_val)
-
-    @classmethod
-    def _match_val(cls, pat_val, expr_val) -> bool:
-        if pat_val is None:
-            return True  # `None` matches any value
-        elif isinstance(pat_val, (int, float, str)):
-            return pat_val == expr_val
-        elif isinstance(pat_val, (tuple, list)) and isinstance(expr_val, (tuple, list)):
-            if len(pat_val) != len(expr_val):
-                return False
-            for p, e in zip(pat_val, expr_val):
-                if not cls._match_val(p, e):
-                    return False
-            return True
-        else:
-            return False
 
     def match_tuple(self, tup: Tup, expr: relay.Expr, env: Env) -> bool:
         # Match tuple node
@@ -161,6 +139,12 @@ class Matcher:
         if not isinstance(expr, relay.Tuple):
             return False
 
+        # Match length if provided
+        if var.len is not None:
+            length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)
+            if length != len(expr.fields):
+                return False
+
         # Match tuple fields
         for i in range(len(expr.fields)):
             expr_f = expr.fields[i]
@@ -176,3 +160,47 @@ class Matcher:
     def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
         pat = eval_get_inst(get_inst, self.pat_to_expr, env)
         return self.match(pat, expr, env)
+
+    def match_attr(self, pat_attr: Attr, expr_attr, env: Env) -> bool:
+        # Get expression attribute value
+        expr_val = util.cvt_ir_value(expr_attr)
+
+        # Match attribute according to attribute type
+        if isinstance(pat_attr, VariadicAttr):
+            # Variadic can only match linear collection
+            if not isinstance(expr_val, (tuple, list)):
+                return False
+
+            # Check length if provided
+            if pat_attr.len is not None:
+                length = AttrEvaluator(self.pat_to_expr).visit(pat_attr.len, env)
+                if length != len(expr_val):
+                    return False
+
+            # Match fields
+            for i in range(len(expr_val)):
+                new_env = env if pat_attr.index is None \
+                    else Env(prev=env, symbol=pat_attr.index, value=i)
+                if not self.match_attr(pat_attr.attr, expr_val[i], new_env):
+                    return False
+
+            return True
+        else:
+            pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr, env)
+            return self._match_val(pat_val, expr_val)
+
+    @classmethod
+    def _match_val(cls, pat_val, expr_val) -> bool:
+        if pat_val is None:
+            return True  # `None` matches any value
+        elif isinstance(pat_val, (int, float, str)):
+            return pat_val == expr_val
+        elif isinstance(pat_val, (tuple, list)) and isinstance(expr_val, (tuple, list)):
+            if len(pat_val) != len(expr_val):
+                return False
+            for p, e in zip(pat_val, expr_val):
+                if not cls._match_val(p, e):
+                    return False
+            return True
+        else:
+            return False

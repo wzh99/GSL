@@ -160,6 +160,10 @@ class _SrcPatChecker(PatternVisitor[Env]):
             new_env = env + (var.index, True)
         self.visit(var.pat, new_env)
 
+        # Check length
+        if var.len is not None:
+            self.attr_checker.visit(var.len, env)
+
         # Check template and first list
         for t in var.templates:
             self.visit(t, new_env)
@@ -185,6 +189,12 @@ class _SrcAttrChecker(AttrVisitor[Env]):
     def visit_symbol(self, sym: Symbol, env: Env) -> Any:
         if sym not in env:
             raise KeyError('Symbol not found in environment.')
+
+    def visit_variadic(self, var: VariadicAttr, env: Env) -> Any:
+        if var.len is not None:
+            self.visit(var.len, env)
+        new_env = env if var.index is None else env + (var.index, True)
+        self.visit(var.attr, new_env)
 
 
 class _TgtPatChecker(PatternVisitor[Env]):
@@ -279,6 +289,15 @@ class _TgtAttrChecker(AttrVisitor[Env]):
             raise AttributeError(
                 'Attribute in target pattern refers to node not defined in source pattern.'
             )
+
+    def visit_variadic(self, var: VariadicAttr, env: Env) -> Any:
+        if var.len is None:
+            raise ValueError(
+                'Length is not specified for variadic attribute in target pattern.'
+            )
+        self.visit(var.len, env)
+        new_env = env if var.index is None else env + (var.index, True)
+        self.visit(var.attr, new_env)
 
 
 @relay.transform.function_pass(opt_level=0)
