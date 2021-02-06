@@ -28,9 +28,15 @@ class ExprRewriter:
             pat_to_expr: PatExprMap = dict()
             if self.is_var:  # match variadic with different procedure
                 # noinspection PyTypeChecker
-                src_matched = self.match_variadic(self.src_outs[0], expr, pat_to_expr, succ_list)
+                src_var: Variadic = self.src_outs[0]
+                src_matched = self.match_variadic(src_var, expr, pat_to_expr, succ_list)
                 if len(src_matched) == 0:
                     break
+                elif src_var.min_len is not None and len(src_matched) < src_var.min_len:
+                    self.history.update(src_matched)
+                    self.clear_pat()
+                    continue
+
             else:
                 fst_matched = self.match_one(self.src_outs[0], expr, pat_to_expr)
                 if fst_matched is None:
@@ -232,8 +238,8 @@ class ExprRewriter:
                 # Try matching field with expression
                 env = Env() if src_var.index is None else Env(symbol=src_var.index, value=count)
                 matcher = Matcher(pat_to_expr.copy())
-                res = matcher.match(src_var.instantiate(), e, env)
-                if not res:
+                result = matcher.match(src_var.instantiate(), e, env)
+                if not result:
                     src_var.rollback()
                     continue
 
@@ -244,7 +250,7 @@ class ExprRewriter:
                 found = True
                 break
 
-            # No match for this pattern, the match end here
+            # No more match for this pattern
             if not found:
                 return out_matched
 

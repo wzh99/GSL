@@ -317,7 +317,7 @@ def parallel_dense_variadic():
 
     # Source pattern
     dense = Dense(x, w)
-    src = Variadic(dense, templates=[dense, w], first=[None, w1])
+    src = Variadic(dense, templates=[dense, w], first=[None, w1], min_len=2)
 
     # Target pattern
     i = Symbol()
@@ -325,12 +325,12 @@ def parallel_dense_variadic():
     dense = Dense(x, Concatenate(Variadic(get_inst, templates=[get_inst], index=i,
                                           length=src.length),
                                  axis=0))
+    i = Symbol()
     j = Symbol()
-    k = Symbol()
     split = Split(dense,
                   indices_or_sections=VariadicAttr(
-                      Sum(src(k, w).shape[0], k, j + 1),
-                      index=j, length=src.length - 1
+                      Sum(src(j, w).shape[0], j, i + 1),
+                      index=i, length=src.length - 1
                   ),
                   axis=-1)
     i = Symbol()

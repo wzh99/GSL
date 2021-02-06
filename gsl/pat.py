@@ -315,7 +315,7 @@ class Variadic(Pattern):
 
     def __init__(self, pat: Pattern, templates: Optional[List[Pattern]] = None,
                  first: Optional[List[Optional[Pattern]]] = None, index: Optional[Symbol] = None,
-                 length: Optional[AttrConvertible] = None):
+                 length: Optional[AttrConvertible] = None, min_len: Optional[int] = None):
         """
         Constructor.
 
@@ -331,6 +331,9 @@ class Variadic(Pattern):
         :param length: An attribute expression that indicates how long the pattern will be. In
             source pattern, it is optional. If provided, the length of tuple will be checked.
             In target pattern, it is required to specify the length of constructed tuple.
+        :param min_len: An integer specifying the minimum number of fields that could be a match
+            of this variadic. This only works for variadic source output pattern. In other cases,
+            this value will be ignored.
         """
         super().__init__()
 
@@ -383,6 +386,7 @@ class Variadic(Pattern):
         self.len: Optional[Attr] = None
         if length is not None:
             self.len = to_attr(length)
+        self.min_len = min_len
 
         # Initialize records during substitution
         self.pat_inst: List[Pattern] = []

@@ -47,7 +47,7 @@ class AttrEvaluator(AttrVisitor[Env]):
         # Get expression from mapping
         if pat not in self.pat_to_expr:
             raise RuntimeError(
-                'Pattern not found matched before.'
+                'Pattern not matched before.'
             )
         expr = self.pat_to_expr[pat]
 
