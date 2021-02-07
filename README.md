@@ -11,8 +11,8 @@ Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/
 ## Feature
 
 * **Declarative**. The language makes users focus on essence of graph substitutions. They don't need to care about details of substitution algorithm. 
-* **Simple**. The language makes full use of Python features to make it simple and concise.  Substitution rules can be defined and applied to the graph at any time, with only a few lines of code. 
-* **Expressive**. The language support patterns with any number of output nodes. Complex constraints on operator attributes could be specified using attribute expressions. 
+* **Simple**. The language makes full use of Python features to make it simple and concise.  Substitution rules can be defined and applied to the graph with only a few lines of code. 
+* **Expressive**. The language support patterns with multiple, and even variadic output nodes. Complex constraints on operator attributes could be specified using attribute expressions. 
 
 ## Dependency
 
@@ -20,15 +20,15 @@ Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/
 * numpy
 * graphviz (if graph visualization feature is needed)
 
-## Language
+## Usage
 
-Here we use a simple case, which has only one output node, to demonstrate this language. Consider the diamond-shaped convolution and addition pattern. In the source graph, an input is parallelly convolved with two kernels with identical shape, and the result is added together. This is equivalent to convolving the input with element-wise addition of two kernels. In simplest form, rule may look like this: 
+Here we use a simple case to demonstrate this language. Consider the diamond-shaped convolution and addition pattern, which can be fused to a single convolution. In simplest form, rule may look like this: 
 
 ```python
 conv2d(x, w1) + conv2d(x, w2) = conv2d(x, w1 + w2)
 ```
 
-Here we use GSL to define this rule, which looks like this: 
+Write code in GSL to define this rule: 
 
 ```python
 from gsl import *
@@ -40,8 +40,8 @@ w2 = Var(shape=w1.shape)
 
 # Source pattern: conv2d(x, w1) + conv2d(x, w2)
 conv1 = Conv2D(x, w1)
-conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, 
-               dilation=conv1.dilation, groups=conv1.groups)
+conv2 = Conv2D(x, w2, 
+               **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 y1 = conv1 + conv2
 
 # Target pattern: conv2d(x, w1 + w2)
@@ -52,21 +52,7 @@ y2 = Conv2D(x, w1 + w2,
 subst = Substitution(y1, y2)
 ```
 
-At the very beginning, we import all the necessary classes and functions from package `gsl`. 
-
-First, we define all the input nodes, including wildcards (which matches any expression) and variables. The second kernel must have identical shape with the first, so we provide a keyword argument as an attribute constraint. The `shape` keyword on the left hand side is an attribute of variable `w2`. The right hand side is an attribute expression which gets attribute `shape` of `w1`.
-
-Second, we define source pattern graph. For the first convolution,  it has input nodes `x` and `w1`, so we just need to define `conv1 = Conv2D(x, w1)`. For the second convolution, it has input nodes `x` and `w2`, and should have identical strides, padding, dilation and groups with `conv1`, so we define `conv2 = Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding, dilation=conv1.dilation, groups=conv1.groups)`. The output is addition of the results of two convolutions, so we define `y1 = conv1 + conv2`. 
-
-Then the target pattern, which is a single convolution. The kernel is addition of `w1` and `w2`. The target convolution must also have identical strides, padding, dilation and groups with either of the convolutions in source pattern. Instead of writing the four equations which share the same form `p=a.p`, we provide `same_attr` shorthand to specify that the four attributes of `y2` are identical with the ones of `conv1`. 
-
-Finally, we build substitution with source and target patterns. The code is very straightforward. The `Substitution` class will perform semantics checking on the pattern. After checking, it can be applied to deep learning workloads. 
-
-## Executor
-
-The pattern carries essential information for graph substitution. The executor then used this information to actually perform substitution on real computation graphs. The executor uses a bidirectional matching algorithm to handle patterns with multiple nodes, and falls back to a simpler algorithm for single node. Here we just shows how the rule above applies to a Relay workload. 
-
-We define a simple test case with Relay API, then create a `Workload` object. TVM provides module (which describes a computation graph) and parameter dictionary separately. `Workload` just combines these two things. Since we don't have trained parameters for this workload, we let static method `from_expr` create random parameters for us.  Set `{'x'}` indicates variable `x` is input of the model and should not be included in parameter dictionary. 
+Then we define a simple test case with Relay API, and create a `Workload` object. 
 
 ```python
 from tvm import relay
@@ -89,7 +75,7 @@ def @main(%x: Tensor[(2, 2, 4, 4), float32], %w1: Tensor[(4, 2, 1, 1), float32],
 }
 ```
 
-Code for application of substitution is quite simple, just one line. Then we can print the module after substitution.
+We apply the substitution to the workload. 
 
 ```python
 new_wl = subst(wl)
@@ -119,5 +105,81 @@ print(np.max(np.abs(y2 - y1)))
 2.3841858e-07
 ```
 
-The floating point computational difference is very small, this means the substitution is correct. 
+The floating point computational difference is very small, this means the substitution is correct.
 
+## Examples
+
+GSL support source and target patterns with multiple output nodes. The following substitution fuses two parallel convolutions, with same number of output channels, into one. 
+
+```python
+# Input
+x = Wildcard()
+w1 = Var()
+w2 = Var(shape=w1.shape)
+
+# Source pattern
+conv1 = Conv2D(x, w1)
+conv2 = Conv2D(x, w2, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+
+# Target pattern
+w = Concatenate((w1, w2), axis=0)
+conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+split = Split(conv, indices_or_sections=2, axis=1)
+
+# Build substitution
+return Substitution([conv1, conv2], [split[0], split[1]])
+```
+
+GSL can also support variadic pattern, including variadic tuple fields and variadic output nodes. The following substitution removes a split and a following concatenate operation along the same axis. 
+
+```python
+# Inputs
+x = Wildcard()
+
+# Source pattern: concat(split(x, axis=a), axis=a)
+split = Split(x)
+i = Symbol()
+item = split[i]
+y1 = Concatenate(Variadic(item, templates=[item], index=i), axis=split.axis)
+
+# Target pattern: x
+y2 = x
+
+# Build substitution
+return Substitution(y1, y2)
+```
+
+The following is a variadic version of fusing parallel convolutions. This substitution also allow number of output channels to be different. 
+
+```python
+# Input
+x = Wildcard()
+w1 = Var()
+w = Var(shape=(None, None, w1.shape[2], w1.shape[3]))
+
+# Source pattern
+conv1 = Conv2D(x, w1)
+conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
+
+# Target pattern
+i = Symbol()
+get_inst = src(i, w)
+concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, length=src.length),
+                     axis=0)
+conv = Conv2D(x, concat, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+
+i = Symbol()
+j = Symbol()
+split = Split(conv, axis=1,
+              indices_or_sections=VariadicAttr(Sum(src(j, w).shape[0], j, i + 1),
+                                               index=i, length=src.length - 1))
+i = Symbol()
+item = split[i]
+tgt = Variadic(item, templates=[item], index=i)
+
+# Build substitution
+return Substitution(src, tgt)
+```
+
+For more examples of GSL, see [rule.py](rule.py). 
