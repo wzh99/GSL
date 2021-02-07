@@ -77,8 +77,9 @@ class Substitution:
 
         # Check connectivity of variadic source
         if self.is_var:
-            var = src_outs[0]
-            non_tpl = src_pats.difference([var], var.templates)
+            # noinspection PyTypeChecker
+            var: Variadic = src_outs[0]
+            non_tpl = src_pats.difference([var], var.templates, var.first)
             if len(non_tpl) == 0:
                 raise ValueError(
                     'Variadic source pattern has no common nodes.'
@@ -162,6 +163,10 @@ class _SrcPatChecker(PatternVisitor[Env]):
         # Check first and template list
         for t in var.first:
             if t is not None:
+                if t.has_template:
+                    raise ValueError(
+                        'Pattern as first instance cannot connect to template patterns.'
+                    )
                 self.visit(t, new_env)
         for t in var.templates:
             self.visit(t, new_env)
@@ -255,6 +260,14 @@ class _TgtPatChecker(PatternVisitor[Env]):
             self.attr_checker.visit(a, env)
 
     def visit_variadic(self, var: Variadic, env: Env) -> Any:
+        # Check length
+        if not var.is_output:
+            if var.len is None:
+                raise ValueError(
+                    'Length is not specified for non-output target pattern.'
+                )
+            self.attr_checker.visit(var.len, env)
+
         # Add index to environment and check pattern
         new_env = env
         if var.index is not None:
@@ -264,16 +277,8 @@ class _TgtPatChecker(PatternVisitor[Env]):
         # Check template and first list
         for t in var.templates:
             self.visit(t, new_env)
-            if var.use_first(t):
+            if var.has_first(t):
                 self.visit(var.tpl_to_fst[t], new_env)
-
-        # Check length
-        if not var.is_output:
-            if var.len is None:
-                raise ValueError(
-                    'Length is not specified for non-output target pattern.'
-                )
-            self.attr_checker.visit(var.len, env)
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)

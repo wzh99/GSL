@@ -41,6 +41,15 @@ class Pattern:
     def is_used(self) -> bool:
         return self.in_src or self.in_tgt
 
+    @property
+    def has_template(self) -> bool:
+        if self.is_template:
+            return True
+        for p in self.pred:
+            if p.has_template:
+                return True
+        return False
+
     # Shared attributes
     shared_attrs = {'shape', 'dtype'}
 
@@ -354,14 +363,16 @@ class Variadic(Pattern):
                         'Number of first symbols must match number of duplicated symbols.'
                     )
             else:
-                first = templates  # first and duplicated list are the same
+                first = [None] * len(templates)
         else:
             templates = []
+            first = []
 
         # Map template to first
-        self.tpl_to_fst: Dict[Pattern, Pattern] = dict()
-        for i in range(len(templates)):
-            t, f = templates[i], first[i]
+        self.templates: List[Pattern] = templates
+        self.first: List[Optional[Pattern]] = first
+        self.tpl_to_fst = dict(zip(templates, first))
+        for t, f in self.tpl_to_fst.items():
             if isinstance(t, Variadic):
                 raise TypeError(
                     'Variadic cannot be a template pattern.'
@@ -370,16 +381,11 @@ class Variadic(Pattern):
                 raise ValueError(
                     'Template is not sub-pattern of field pattern.'
                 )
-            if f is None:
-                f = first[i] = t
-            if t.__class__ != f.__class__:
+            if f is not None and t.__class__ != f.__class__:
                 raise TypeError(
                     'Template and first pattern must be of same type.'
                 )
             t.is_template = True
-            self.tpl_to_fst[t] = f
-        self.templates: List[Pattern] = templates
-        self.first: List[Pattern] = first
 
         # Initialize index and length
         self.index = index
@@ -407,7 +413,7 @@ class Variadic(Pattern):
         return GetAttr(self, item)
 
     def __call__(self, index: AttrConvertible, t: Pattern):
-        if not self.has_template(t):
+        if t not in self.templates:
             raise ValueError('Pattern is not template of this variadic.')
         return GetInstance(self, to_attr(index), t)
 
@@ -431,11 +437,8 @@ class Variadic(Pattern):
         while len(self.pat_inst) > 0:
             self.rollback()
 
-    def has_template(self, t: Pattern) -> bool:
-        return t in self.templates
-
-    def use_first(self, t: Pattern) -> bool:
-        return t is not self.tpl_to_fst[t]
+    def has_first(self, t: Pattern) -> bool:
+        return self.tpl_to_fst[t] is not None
 
     def instantiate(self) -> Pattern:
         # Instantiate templates
@@ -446,7 +449,7 @@ class Variadic(Pattern):
         # Maps templates to first instances
         if len(self) == 0:
             for tpl in self.templates:
-                if self.use_first(tpl):
+                if self.has_first(tpl):
                     inst_map[tpl] = self.tpl_to_fst[tpl]
 
         # Add record
@@ -539,8 +542,8 @@ class _PatInst(PatternVisitor[None]):
         self.map: Dict[Pattern, Pattern] = {}
 
     def visit(self, pat: Pattern, arg: None) -> Pattern:
-        if self.var.has_template(pat):  # current pattern is a template
-            if self.index == 0 and self.var.use_first(pat):  # this template has first instance
+        if pat in self.var.templates:  # current pattern is a template
+            if self.index == 0 and self.var.has_first(pat):  # this template has first instance
                 return self.var.tpl_to_fst[pat]
             else:
                 # Instantiate template and copy attributes to instance
