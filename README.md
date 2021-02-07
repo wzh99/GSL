@@ -8,13 +8,13 @@ Deep learning compilers perform graph substitutions on computation graphs of mod
 
 Current implementation of GSL is based on [TVM Relay IR](https://tvm.apache.org/docs/dev/relay_intro.html) and can be used as an alternative to its [pattern language](https://tvm.apache.org/docs/langref/relay_pattern.html#pattern-language-design). It can be ported to other graph-level IRs because of their similarity. 
 
-## Feature
+## Features
 
 * **Declarative**. The language makes users focus on essence of graph substitutions. They don't need to care about details of substitution algorithm. 
 * **Simple**. The language makes full use of Python features to make it simple and concise.  Substitution rules can be defined and applied to the graph with only a few lines of code. 
 * **Expressive**. The language support patterns with multiple, and even variadic output nodes. Complex constraints on operator attributes could be specified using attribute expressions. 
 
-## Dependency
+## Dependencies
 
 * tvm>=0.7
 * numpy
@@ -119,11 +119,13 @@ w2 = Var(shape=w1.shape)
 
 # Source pattern
 conv1 = Conv2D(x, w1)
-conv2 = Conv2D(x, w2, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+conv2 = Conv2D(x, w2, 
+               **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
 # Target pattern
 w = Concatenate((w1, w2), axis=0)
-conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+conv = Conv2D(x, w, 
+              **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 split = Split(conv, indices_or_sections=2, axis=1)
 
 # Build substitution
@@ -159,15 +161,18 @@ w = Var(shape=(None, None, w1.shape[2], w1.shape[3]))
 
 # Source pattern
 conv1 = Conv2D(x, w1)
-conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+conv = Conv2D(x, w, 
+              **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
 
 # Target pattern
 i = Symbol()
 get_inst = src(i, w)
-concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, length=src.length),
+concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, 
+                              length=src.length),
                      axis=0)
-conv = Conv2D(x, concat, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+conv = Conv2D(x, concat, 
+              **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
 i = Symbol()
 j = Symbol()
