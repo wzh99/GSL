@@ -75,7 +75,7 @@ def @main(%x: Tensor[(2, 2, 4, 4), float32], %w1: Tensor[(4, 2, 1, 1), float32],
 }
 ```
 
-We apply the substitution to the workload. 
+Apply the substitution to the workload. 
 
 ```python
 new_wl = subst(wl)
@@ -88,7 +88,7 @@ def @main(%x: Tensor[(2, 2, 4, 4), float32], %v_param_1: Tensor[(4, 2, 1, 1), fl
 }
 ```
 
-We can see that the two convolutions are fused to one, a new kernel is created and the original two are removed. We can run the workload on same input to test its correctness.
+We can see that the two convolutions are fused to one, that a new kernel is created and that the original two are removed. We can run the workload on same input to test its correctness.
 
 ```python
 import numpy as np
@@ -105,11 +105,11 @@ print(np.max(np.abs(y2 - y1)))
 2.3841858e-07
 ```
 
-The floating point computational difference is very small, this means the substitution is correct.
+The floating point computational difference is very small, which means the substitution is correct.
 
 ## Examples
 
-GSL support source and target patterns with multiple output nodes. The following substitution fuses two parallel convolutions, with same number of output channels, into one. 
+GSL supports source and target patterns with multiple output nodes. The following substitution fuses two parallel convolutions, with same number of output channels, into one. 
 
 ```python
 # Input
@@ -151,7 +151,7 @@ y2 = x
 return Substitution(y1, y2)
 ```
 
-The following is a variadic version of fusing parallel convolutions. This substitution also allow number of output channels to be different. 
+The following is a variadic version of fusing parallel convolutions. This substitution also allows number of output channels to be different. 
 
 ```python
 # Input
@@ -173,7 +173,6 @@ concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i,
                      axis=0)
 conv = Conv2D(x, concat, 
               **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
-
 i = Symbol()
 j = Symbol()
 split = Split(conv, axis=1,

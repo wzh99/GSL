@@ -163,7 +163,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
         # Check first and template list
         for t in var.first:
             if t is not None:
-                if t.has_template:
+                if t.check_any(lambda p: p.is_template):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )

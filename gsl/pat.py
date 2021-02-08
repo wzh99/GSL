@@ -21,9 +21,8 @@ class Pattern:
         self.is_template = False
 
     @property
-    def pred(self):
-        lst: List[Pattern] = []
-        return lst
+    def pred(self) -> List['Pattern']:
+        return []
 
     @property
     def is_output(self) -> bool:
@@ -34,19 +33,26 @@ class Pattern:
         return self.src_idx != self.NOT_IN_SRC
 
     @property
-    def src_succ(self):
+    def src_succ(self) -> List['Pattern']:
         return list(filter(lambda p: p.in_src and not p.is_template, self.succ))
 
     @property
     def is_used(self) -> bool:
         return self.in_src or self.in_tgt
 
-    @property
-    def has_template(self) -> bool:
-        if self.is_template:
+    def check_all(self, predicate: Callable[['Pattern'], bool]) -> bool:
+        if not predicate(self):
+            return False
+        for p in self.pred:
+            if not p.check_all(predicate):
+                return False
+        return True
+
+    def check_any(self, predicate: Callable[['Pattern'], bool]) -> bool:
+        if predicate(self):
             return True
         for p in self.pred:
-            if p.has_template:
+            if p.check_any(predicate):
                 return True
         return False
 
@@ -88,14 +94,8 @@ class Pattern:
     def __rtruediv__(self, other):
         return Call('divide', to_pat(other), self)
 
-    def __contains__(self, sub) -> bool:
-        if sub is self:
-            return True
-        else:
-            for p in self.pred:
-                if sub in p:
-                    return True
-            return False
+    def __contains__(self, sub: 'Pattern') -> bool:
+        return self.check_any(lambda p: p is sub)
 
     def clear(self):
         for p in self.pred:
@@ -377,7 +377,7 @@ class Variadic(Pattern):
                 raise TypeError(
                     'Variadic cannot be a template pattern.'
                 )
-            if t not in pat:
+            if not pat.check_any(lambda p: p is t):
                 raise ValueError(
                     'Template is not sub-pattern of field pattern.'
                 )
@@ -401,9 +401,6 @@ class Variadic(Pattern):
     @property
     def pred(self):
         return self.pat_inst
-
-    def __contains__(self, sub: Pattern) -> bool:
-        return sub in self.pat or sub in super()
 
     def __getattr__(self, item: str):
         if item != 'length':
