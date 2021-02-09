@@ -118,7 +118,7 @@ w1 = Var()
 w2 = Var(shape=w1.shape)
 
 # Source pattern
-conv1 = Conv2D(x, w1)
+conv1 = Conv2D(x, w1, groups=1)
 conv2 = Conv2D(x, w2, 
                **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
@@ -160,7 +160,7 @@ w1 = Var()
 w = Var(shape=(None, None, w1.shape[2], w1.shape[3]))
 
 # Source pattern
-conv1 = Conv2D(x, w1)
+conv1 = Conv2D(x, w1, groups=1)
 conv = Conv2D(x, w, 
               **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)

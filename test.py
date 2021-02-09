@@ -380,13 +380,11 @@ class RuleTest(unittest.TestCase):
 
         # Apply substitutions
         for subst in [
-            rule.merge_element_wise(),
-            rule.parallel_conv_expand_kernels(),
             rule.simplify_batch_norm(),
             rule.conv_mul(),
             rule.bias_add_add(),
             rule.two_conv_add(),
-            rule.split_concat()
+            rule.merge_element_wise(),
         ]:
             wl = subst(wl, fast_mode=True)
         print(wl.mod)

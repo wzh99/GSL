@@ -243,7 +243,7 @@ def parallel_conv():
     w2 = Var(shape=w1.shape)
 
     # Source pattern
-    conv1 = Conv2D(x, w1)
+    conv1 = Conv2D(x, w1, groups=1)
     conv2 = Conv2D(x, w2, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
     # Target pattern
@@ -262,7 +262,7 @@ def parallel_conv_variadic():
     w = Var(shape=(None, None, w1.shape[2], w1.shape[3]))
 
     # Source pattern
-    conv1 = Conv2D(x, w1)
+    conv1 = Conv2D(x, w1, groups=1)
     conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
     src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
 
@@ -299,7 +299,7 @@ def parallel_conv_expand_kernels():
         return pad_h, pad_w, pad_h, pad_w
 
     conv1_pad = same_padding(w1.shape[2], w1.shape[3])
-    conv1 = Conv2D(x, w1, padding=conv1_pad, strides=(1, 1), dilation=(1, 1))
+    conv1 = Conv2D(x, w1, padding=conv1_pad, strides=(1, 1), dilation=(1, 1), groups=1)
     conv2_pad = same_padding(w2.shape[2], w2.shape[3])
     conv2 = Conv2D(x, w2, padding=conv2_pad,
                    **same_attr(conv1, ['strides', 'dilation', 'groups']))
