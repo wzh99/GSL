@@ -112,6 +112,7 @@ class ExprRewriter:
                 matcher = Matcher(pat_to_expr.copy())
                 res = matcher.match(pat, cur_expr, Env())
                 if not res:
+                    self.history.add(cur_expr)
                     continue  # even first pattern is not matched, skip this expression
                 pat_to_expr.update(matcher.pat_to_expr)
                 return cur_expr
@@ -185,6 +186,7 @@ class ExprRewriter:
 
             # No match for this pattern, the whole match failed
             if not found:
+                self.history.add(fst_matched)
                 return []
 
         return output_matched
