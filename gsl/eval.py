@@ -13,20 +13,6 @@ class AttrEvaluator(AttrVisitor[Env]):
     def visit(self, attr: Attr, env: Env) -> Any:
         return util.cvt_ir_value(super().visit(attr, env))
 
-    @staticmethod
-    def get_expr_attr(expr: relay.Expr, name: str):
-        expr_ty = expr.checked_type
-        if not isinstance(expr_ty, ir.TensorType):
-            raise ValueError(
-                'Cannot get attribute from an expression not of tensor type.'
-            )
-        if name == 'shape':
-            return expr_ty.concrete_shape
-        elif name == 'dtype':
-            return expr_ty.dtype
-        else:
-            raise RuntimeError('Unreachable.')
-
     def visit_any(self, a: AnyAttr, env: Env):
         return None
 
@@ -53,7 +39,7 @@ class AttrEvaluator(AttrVisitor[Env]):
 
         # Get attribute from expression
         if name in Pattern.shared_attrs:
-            return self.get_expr_attr(expr, name)
+            return util.get_shared_attr(expr, name)
         elif isinstance(pat, Call):
             if (expr.attrs is None) or (name not in expr.attrs.keys()):
                 raise RuntimeError(

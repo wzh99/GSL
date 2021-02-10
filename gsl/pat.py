@@ -15,6 +15,7 @@ class Pattern:
     NOT_IN_SRC = -1
 
     def __init__(self):
+        self.attrs: Dict[str, Attr] = {}
         self.succ: List[Pattern] = []
         self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
@@ -58,6 +59,15 @@ class Pattern:
 
     # Shared attributes
     shared_attrs = {'shape', 'dtype'}
+
+    def _check_shared_attrs(self, raw_attrs: Dict[str, AttrConvertible]):
+        checked: List[str] = []
+        for name, attr in raw_attrs.items():
+            if name in self.shared_attrs:
+                self.attrs[name] = to_attr(attr)
+                checked.append(name)
+        for name in checked:
+            del raw_attrs[name]
 
     def __getattr__(self, name: str):
         if name not in self.shared_attrs:
@@ -121,7 +131,18 @@ class Wildcard(Pattern):
     A wildcard node matches all nodes in graph. Target graph cannot contain wildcard nodes not
     defined in source graph.
     """
-    pass
+
+    def __init__(self, **raw_attrs: AttrConvertible):
+        super().__init__()
+
+        # Check attributes for variable
+        self._check_shared_attrs(raw_attrs)
+        if len(raw_attrs) != 0:
+            raise AttributeError(
+                'Attributes {} not found in wildcard pattern.'.format(
+                    set(raw_attrs.keys())
+                )
+            )
 
 
 class Var(Pattern):
@@ -130,20 +151,17 @@ class Var(Pattern):
     not defined in source graph.
     """
 
-    lhs_attrs = {'shape', 'dtype'}
-
-    def __init__(self, **raw_attrs):
+    def __init__(self, **raw_attrs: AttrConvertible):
         super().__init__()
 
         # Check attributes for variable
-        self.attrs: Dict[str, Attr] = {}
-        for name, attr in raw_attrs.items():
-            if name not in self.lhs_attrs:
-                raise AttributeError(
-                    'Attribute \'{}\' cannot appear on lhs of a constraint for '
-                    'variables.'.format(name)
+        self._check_shared_attrs(raw_attrs)
+        if len(raw_attrs) != 0:
+            raise AttributeError(
+                'Attributes {} not found in variable pattern.'.format(
+                    set(raw_attrs.keys())
                 )
-            self.attrs[name] = to_attr(attr)
+            )
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
@@ -248,7 +266,9 @@ class Call(Pattern):
             a.succ.append(self)
 
         # Convert raw attribute values to attribute nodes if necessary
-        self.attrs = dict([(name, to_attr(val)) for name, val in raw_attr.items()])
+        self.attrs.update(
+            dict([(name, to_attr(val)) for name, val in raw_attr.items()])
+        )
 
         # Check if specified attributes really exists in op
         if isinstance(op, ConcreteOp):

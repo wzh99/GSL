@@ -24,6 +24,20 @@ def cvt_ir_value(val) -> Any:
         return val
 
 
+def get_shared_attr(expr: relay.Expr, name: str):
+    expr_ty = expr.checked_type
+    if not isinstance(expr_ty, ir.TensorType):
+        raise ValueError(
+            'Cannot get attribute from an expression not of tensor type.'
+        )
+    if name == 'shape':
+        return expr_ty.concrete_shape
+    elif name == 'dtype':
+        return expr_ty.dtype
+    else:
+        raise RuntimeError('Unreachable.')
+
+
 def get_expr_pred(expr: relay.Expr) -> List[relay.Expr]:
     if isinstance(expr, relay.Call):
         return list(expr.args)
