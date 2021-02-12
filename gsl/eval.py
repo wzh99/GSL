@@ -36,13 +36,9 @@ class AttrEvaluator(AttrVisitor[Env]):
         expr = self.pat_to_expr[pat]
 
         # Get attribute from expression
-        if name in Pattern.shared_attrs:
+        if isinstance(pat, Var) and name in Var.var_attrs:
             return util.get_tensor_attr(expr, name)
-        elif isinstance(pat, Call):
-            if (expr.attrs is None) or (name not in expr.attrs.keys()):
-                raise RuntimeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
-                )
+        elif isinstance(pat, Call) and expr.attrs is not None and name in expr.attrs.keys():
             return expr.attrs[name]
         elif isinstance(pat, GetItem) and name == 'index':
             return expr.index

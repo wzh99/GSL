@@ -57,25 +57,13 @@ class Pattern:
                 return True
         return False
 
-    # Shared attributes
-    shared_attrs = {'shape', 'dtype'}
-
-    def _check_shared_attrs(self, raw_attrs: Dict[str, AttrConvertible]):
-        checked: List[str] = []
-        for name, attr in raw_attrs.items():
-            if name in self.shared_attrs:
-                self.attrs[name] = to_attr(attr)
-                checked.append(name)
-        for name in checked:
-            del raw_attrs[name]
-
-    def __getattr__(self, name: str):
-        if name not in self.shared_attrs:
-            raise AttributeError('Attribute \'{}\' not found in pattern node.'.format(name))
-        return GetAttr(self, name)
-
     def __getitem__(self, *item):
         return GetItem(self, item[0])
+
+    def __getattr__(self, name: str) -> GetAttr:
+        raise AttributeError(
+            'Attribute {} not found in pattern node.'.format(name)
+        )
 
     def __neg__(self):
         return Call('negative', self)
@@ -131,18 +119,7 @@ class Wildcard(Pattern):
     A wildcard node matches all nodes in graph. Target graph cannot contain wildcard nodes not
     defined in source graph.
     """
-
-    def __init__(self, **raw_attrs: AttrConvertible):
-        super().__init__()
-
-        # Check attributes for variable
-        self._check_shared_attrs(raw_attrs)
-        if len(raw_attrs) != 0:
-            raise AttributeError(
-                'Attributes {} not found in wildcard pattern.'.format(
-                    set(raw_attrs.keys())
-                )
-            )
+    pass
 
 
 class Var(Pattern):
@@ -151,17 +128,26 @@ class Var(Pattern):
     not defined in source graph.
     """
 
+    var_attrs = {'shape', 'dtype', 'dim'}
+
     def __init__(self, **raw_attrs: AttrConvertible):
         super().__init__()
 
         # Check attributes for variable
-        self._check_shared_attrs(raw_attrs)
-        if len(raw_attrs) != 0:
-            raise AttributeError(
-                'Attributes {} not found in variable pattern.'.format(
-                    set(raw_attrs.keys())
+        for name, attr in raw_attrs.items():
+            if name in self.var_attrs:
+                self.attrs[name] = to_attr(attr)
+            else:
+                raise AttributeError(
+                    'Attribute {} not found in variable node.'.format(name)
                 )
+
+    def __getattr__(self, name: str) -> GetAttr:
+        if name not in self.var_attrs:
+            raise AttributeError(
+                'Attribute {} not found in variable node.'.format(name)
             )
+        return GetAttr(self, name)
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
@@ -284,10 +270,6 @@ class Call(Pattern):
         return self.args
 
     def __getattr__(self, name: str):
-        # Check shared attributes first
-        if name in self.shared_attrs:
-            return super().__getattr__(name)
-
         # Validate attribute name for concrete op
         if isinstance(self.op, ConcreteOp):
             attr_names = spec.get_op_attr_names(self.op.name)

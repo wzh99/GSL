@@ -19,7 +19,7 @@ class Matcher:
 
         # Try matching according to pattern node type
         if isinstance(pat, Wildcard):
-            res = self.match_wildcard(pat, expr, env)
+            res = True
         elif isinstance(pat, Var):
             res = self.match_var(pat, expr, env)
         elif isinstance(pat, Const):
@@ -42,14 +42,6 @@ class Matcher:
             self.pat_to_expr[pat] = expr
             self.expr_matched.add(expr)
         return res
-
-    def match_wildcard(self, wildcard: Wildcard, expr: relay.Expr, env: Env) -> bool:
-        # Match attributes
-        for name, attr in wildcard.attrs.items():
-            if not self.match_attr(attr, util.get_tensor_attr(expr, name), env):
-                return False
-
-        return True
 
     def match_var(self, var: Var, expr: relay.Expr, env: Env) -> bool:
         # Match variable node
