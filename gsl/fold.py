@@ -136,6 +136,8 @@ _direct_mapped = {
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
     'expand_dims':
         lambda args, attrs: _expand_dims(args[0], attrs['axis'], attrs['num_newaxis']),
+    'cast':
+        lambda args, attrs: args[0].astype(attrs['dtype']),
     'matrix_set_diag':
         lambda args, attrs: _matrix_set_diag(args[0], args[1]),
     'nn.pad':

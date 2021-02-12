@@ -210,7 +210,7 @@ class VariadicAttr(Attr):
         self.len = to_attr(length)
 
 
-class Sum(Attr):
+class SumAttr(Attr):
     """
     Summation of attribute values in a given range
     """
@@ -249,7 +249,7 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_symbol(attr, arg)
         elif isinstance(attr, VariadicAttr):
             return self.visit_variadic(attr, arg)
-        elif isinstance(attr, Sum):
+        elif isinstance(attr, SumAttr):
             return self.visit_sum(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
@@ -281,5 +281,5 @@ class AttrVisitor(Generic[ArgType]):
     def visit_variadic(self, var: VariadicAttr, arg: ArgType) -> Any:
         pass
 
-    def visit_sum(self, s: Sum, arg: ArgType) -> Any:
+    def visit_sum(self, s: SumAttr, arg: ArgType) -> Any:
         pass

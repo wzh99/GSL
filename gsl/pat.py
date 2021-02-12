@@ -262,7 +262,7 @@ class Call(Pattern):
                 )
 
         # Set self as output of arguments
-        for a in args:
+        for a in self.args:
             a.succ.append(self)
 
         # Convert raw attribute values to attribute nodes if necessary
@@ -334,6 +334,19 @@ class GetItem(Pattern):
     @property
     def pred(self):
         return [self.tup]
+
+    def __getattr__(self, name: str):
+        # Check shared attributes first
+        if name in self.shared_attrs:
+            return super().__getattr__(name)
+
+        # Validate attribute name for concrete op
+        if name != 'index':
+            raise AttributeError(
+                'Attribute {} not found in get-item pattern.'.format(name)
+            )
+
+        return GetAttr(self, name)
 
 
 class Variadic(Pattern):
@@ -425,7 +438,7 @@ class Variadic(Pattern):
     def __getattr__(self, item: str):
         if item != 'length':
             raise ValueError(
-                'Unknown attribute \'{}\' of variadic pattern.'.format(item)
+                'Attribute \'{}\' not found in variadic pattern.'.format(item)
             )
         return GetAttr(self, item)
 

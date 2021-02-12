@@ -129,7 +129,7 @@ def conv_shortcut_add():
     return Substitution(y1, y2)
 
 
-def simplify_batch_norm():
+def lower_batch_norm():
     # Input
     x = Wildcard()
     gamma = Var()
@@ -138,13 +138,34 @@ def simplify_batch_norm():
     moving_var = Var()
 
     # Source pattern: batch_norm(x, gamma, beta, mean, var)
-    bn = BatchNorm(x, gamma, beta, moving_mean, moving_var)
+    bn = BatchNorm(x, gamma, beta, moving_mean, moving_var, axis=1, scale=True, center=True)
     y1 = bn[0]
 
     # Target pattern: k = gamma / sqrt(var + epsilon), x * k + beta - mean * k
     k = gamma / Sqrt(moving_var + bn.epsilon)
     bias = beta - moving_mean * k
     y2 = BiasAdd(x * ExpandDims(k, axis=1, num_newaxis=2), bias)
+
+    # Build substitution
+    return Substitution(y1, y2)
+
+
+def lower_layer_norm():
+    # Input
+    x = Wildcard()
+    gamma = Var()
+    beta = Var()
+
+    # Source pattern layer_norm(x, gamma, beta)
+    y1 = LayerNorm(x, gamma, beta, axis=-1, scale=True, center=True)
+
+    # Target pattern:
+    # (data - mean(data)) / sqrt(var(data) + epsilon)) * gamma + beta
+    mean = Mean(x, axis=(-1,), keepdims=True)
+    demean = x - mean
+    var = Sum(demean * demean, axis=(-1,), keepdims=True) / Cast(gamma.shape[0], dtype=gamma.dtype)
+    norm = demean / Sqrt(var + y1.epsilon)
+    y2 = norm * gamma + beta
 
     # Build substitution
     return Substitution(y1, y2)
@@ -167,37 +188,6 @@ def conv_mul():
     matmul = BatchMatmul(diag, Transpose(conv_mat, axes=(0, 2, 1)))
     fused_w = Reshape(matmul, newshape=w.shape)
     y2 = Conv2D(x, fused_w, groups=1, **same_attr(conv, ['strides', 'padding', 'dilation']))
-
-    # Build substitution
-    return Substitution(y1, y2)
-
-
-def conv_batch_norm():
-    # Input
-    x = Wildcard()
-    w = Var()
-    gamma = Var()
-    beta = Var()
-    moving_mean = Var()
-    moving_var = Var()
-
-    # Source pattern
-    conv = Conv2D(x, w, groups=1)
-    bn = BatchNorm(conv, gamma, beta, moving_mean, moving_var)
-    y1 = bn[0]
-
-    # Target pattern
-    k = gamma / Sqrt(moving_var + bn.epsilon)
-    out_chan = gamma.shape[0]
-    zeros = Zeros(shape=(out_chan, out_chan), dtype=w.dtype)
-    diag = ExpandDims(MatrixSetDiag(zeros, k), axis=0)
-    conv_w = Reshape(w, newshape=(1, w.shape[0], -1))
-    matmul = BatchMatmul(diag, Transpose(conv_w, axes=[0, 2, 1]))
-    fused_w = Reshape(matmul, newshape=w.shape)
-    new_conv = Conv2D(x, fused_w,
-                      **same_attr(conv, ['strides', 'padding', 'dilation', 'groups']))
-    bias = beta - moving_mean * k
-    y2 = BiasAdd(new_conv, bias)
 
     # Build substitution
     return Substitution(y1, y2)
@@ -276,7 +266,7 @@ def parallel_conv_variadic():
     i = Symbol()
     j = Symbol()
     split = Split(conv, axis=1,
-                  indices_or_sections=VariadicAttr(Sum(src(j, w).shape[0], j, i + 1),
+                  indices_or_sections=VariadicAttr(SumAttr(src(j, w).shape[0], j, i + 1),
                                                    index=i, length=src.length - 1))
     i = Symbol()
     item = split[i]
@@ -359,7 +349,7 @@ def parallel_dense_variadic():
     i = Symbol()
     j = Symbol()
     split = Split(dense, axis=-1,
-                  indices_or_sections=VariadicAttr(Sum(src(j, w).shape[0], j, i + 1),
+                  indices_or_sections=VariadicAttr(SumAttr(src(j, w).shape[0], j, i + 1),
                                                    index=i, length=src.length - 1))
     i = Symbol()
     item = split[i]

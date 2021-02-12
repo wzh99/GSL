@@ -44,6 +44,8 @@ class AttrEvaluator(AttrVisitor[Env]):
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
                 )
             return expr.attrs[name]
+        elif isinstance(pat, GetItem) and name == 'index':
+            return expr.index
         else:
             raise RuntimeError('Unreachable.')
 
@@ -90,7 +92,7 @@ class AttrEvaluator(AttrVisitor[Env]):
 
         return fields
 
-    def visit_sum(self, s: Sum, env: Env):
+    def visit_sum(self, s: SumAttr, env: Env):
         length = self.visit(s.len, env)
         result = 0
         for i in range(length):

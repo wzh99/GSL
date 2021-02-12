@@ -82,6 +82,45 @@ class ExpandDims(Call):
         }))
 
 
+class Cast(Call):
+    def __init__(self, data: PatternConvertible,
+                 dtype: Union[str, Attr, None] = None):
+        super().__init__('cast', data, **_filter_attrs({
+            'dtype': dtype
+        }))
+
+
+class Sum(Call):
+    def __init__(self, data: PatternConvertible,
+                 axis: Union[int, tuple, Attr, None] = None,
+                 keepdims: Union[bool, Attr, None] = None,
+                 exclude: Union[bool, Attr, None] = None):
+        super().__init__('sum', data, **_filter_attrs({
+            'axis': axis, 'keepdims': keepdims, 'exclude': exclude,
+        }))
+
+
+class Mean(Call):
+    def __init__(self, data: PatternConvertible,
+                 axis: Union[int, tuple, Attr, None] = None,
+                 keepdims: Union[bool, Attr, None] = None,
+                 exclude: Union[bool, Attr, None] = None):
+        super().__init__('mean', data, **_filter_attrs({
+            'axis': axis, 'keepdims': keepdims, 'exclude': exclude,
+        }))
+
+
+class Variance(Call):
+    def __init__(self, data: PatternConvertible,
+                 axis: Union[int, tuple, Attr, None] = None,
+                 keepdims: Union[bool, Attr, None] = False,
+                 exclude: Union[bool, Attr, None] = False,
+                 unbiased: Union[bool, Attr, None] = False):
+        super().__init__('variance', data, **_filter_attrs({
+            'axis': axis, 'keepdims': keepdims, 'exclude': exclude, 'unbiased': unbiased,
+        }))
+
+
 class MatrixSetDiag(Call):
     def __init__(self, data: PatternConvertible,
                  diagonal: PatternConvertible,
@@ -120,6 +159,21 @@ class BatchNorm(Call):
                  center: Union[bool, Attr, None] = None,
                  scale: Union[bool, Attr, None] = None):
         super().__init__('nn.batch_norm', data, gamma, beta, moving_mean, moving_var,
+                         **_filter_attrs({
+                             'axis': axis, 'epsilon': epsilon, 'center': center,
+                             'scale': scale,
+                         }))
+
+
+class LayerNorm(Call):
+    def __init__(self, data: PatternConvertible,
+                 gamma: PatternConvertible,
+                 beta: PatternConvertible,
+                 axis: Union[int, Attr, None] = None,
+                 epsilon: Union[float, Attr, None] = None,
+                 center: Union[bool, Attr, None] = None,
+                 scale: Union[bool, Attr, None] = None):
+        super().__init__('nn.layer_norm', data, gamma, beta,
                          **_filter_attrs({
                              'axis': axis, 'epsilon': epsilon, 'center': center,
                              'scale': scale,

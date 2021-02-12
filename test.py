@@ -161,8 +161,8 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
-    def test_conv_batch_norm_sequential(self):
-        print('Conv-Mul')
+    def test_conv_batch_norm(self):
+        print('Conv-BatchNorm')
 
         # Source graph
         x = relay.var('x', shape=(2, 2, 4, 4))
@@ -178,31 +178,27 @@ class RuleTest(unittest.TestCase):
 
         # Apply substitutions
         for subst in [
-            rule.simplify_batch_norm(),
+            rule.lower_batch_norm(),
             rule.conv_mul(),
         ]:
             wl = subst(wl, fast_mode=True)
         print(wl.mod)
         self.assertTrue(True)
 
-    def test_conv_batch_norm(self):
-        print('Conv-BatchNorm')
+    def test_lower_layer_norm(self):
+        print('Lower Layer Normalization')
 
         # Source graph
-        x = relay.var('x', shape=(2, 2, 4, 4))
-        w = relay.var('w', shape=(2, 2, 3, 3))
-        gamma = relay.var('gamma', shape=(2,))
-        beta = relay.var('beta', shape=(2,))
-        moving_mean = relay.var('moving_mean', shape=(2,))
-        moving_var = relay.var('moving_var', shape=(2,))
-        y = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))
-        y = relay.nn.batch_norm(y, gamma, beta, moving_mean, moving_var)[0]
-        wl = Workload.from_expr(y, {'x'}, name='conv_bn')
+        x = relay.var('x', shape=(2, 2, 4))
+        gamma = relay.var('gamma', shape=(4,))
+        beta = relay.var('beta', shape=(4,))
+        y = relay.nn.layer_norm(x, gamma, beta)
+        wl = Workload.from_expr(y, {'x'})
         print(wl.mod)
 
-        # Apply substitution
-        subst = rule.conv_batch_norm()
-        wl = subst(wl, new_name='conv_bias_add')
+        # Target graph
+        subst = rule.lower_layer_norm()
+        wl = subst(wl)
         print(wl.mod)
         self.assertTrue(True)
 
@@ -380,7 +376,7 @@ class RuleTest(unittest.TestCase):
 
         # Apply substitutions
         for subst in [
-            rule.simplify_batch_norm(),
+            rule.lower_batch_norm(),
             rule.conv_mul(),
             rule.bias_add_add(),
             rule.two_conv_add(),
@@ -402,7 +398,7 @@ class ModelTest(unittest.TestCase):
 
         # Apply substitution
         for subst in [
-            rule.simplify_batch_norm(),
+            rule.lower_batch_norm(),
             rule.conv_mul()
         ]:
             wl = subst(wl)
@@ -424,7 +420,7 @@ class ModelTest(unittest.TestCase):
         # Apply substitution
         for subst in [
             rule.merge_element_wise_variadic(),
-            rule.simplify_batch_norm(),
+            rule.lower_batch_norm(),
             rule.conv_mul(),
             rule.bias_add_add(),
             rule.two_conv_add(),
@@ -445,6 +441,7 @@ class ModelTest(unittest.TestCase):
         # Apply substitution
         for subst in [
             rule.parallel_dense_variadic(),
+            rule.lower_layer_norm(),
         ]:
             wl = subst(wl)
         wl.visualize()
@@ -461,8 +458,8 @@ if __name__ == '__main__':
         # RuleTest('test_diamond_conv_add'),
         # RuleTest('test_two_conv_add'),
         # RuleTest('test_conv_shortcut_add'),
-        # RuleTest('test_conv_batch_norm_sequential'),
         # RuleTest('test_conv_batch_norm'),
+        # RuleTest('test_lower_layer_norm'),
         # RuleTest('test_merge_element_wise'),
         # RuleTest('test_merge_element_wise_variadic'),
         # RuleTest('test_parallel_conv'),
