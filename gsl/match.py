@@ -1,3 +1,5 @@
+from tvm import ir
+
 from .eval import *
 
 
@@ -44,7 +46,7 @@ class Matcher:
     def match_wildcard(self, wildcard: Wildcard, expr: relay.Expr, env: Env) -> bool:
         # Match attributes
         for name, attr in wildcard.attrs.items():
-            if not self.match_attr(attr, util.get_shared_attr(expr, name), env):
+            if not self.match_attr(attr, util.get_tensor_attr(expr, name), env):
                 return False
 
         return True
@@ -56,7 +58,7 @@ class Matcher:
 
         # Match attributes
         for name, attr in var.attrs.items():
-            if not self.match_attr(attr, util.get_shared_attr(expr, name), env):
+            if not self.match_attr(attr, util.get_tensor_attr(expr, name), env):
                 return False
 
         return True
@@ -175,7 +177,7 @@ class Matcher:
 
         # Match attribute according to attribute type
         if isinstance(pat_attr, VariadicAttr):
-            # Variadic can only match linear collection
+            # Variadic can only match sequential collection
             if not isinstance(expr_val, (tuple, list)):
                 return False
 

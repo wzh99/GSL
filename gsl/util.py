@@ -24,7 +24,7 @@ def cvt_ir_value(val) -> Any:
         return val
 
 
-def get_shared_attr(expr: relay.Expr, name: str):
+def get_tensor_attr(expr: relay.Expr, name: str):
     expr_ty = expr.checked_type
     if not isinstance(expr_ty, ir.TensorType):
         raise ValueError(

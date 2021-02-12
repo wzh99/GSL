@@ -1,4 +1,4 @@
-from tvm import ir, relay
+from tvm import relay
 
 from . import util
 from .pat import *
@@ -32,22 +32,18 @@ class AttrEvaluator(AttrVisitor[Env]):
 
         # Get expression from mapping
         if pat not in self.pat_to_expr:
-            raise RuntimeError(
-                'Pattern not matched before.'
-            )
+            raise RuntimeError('Pattern not matched before.')
         expr = self.pat_to_expr[pat]
 
         # Get attribute from expression
         if name in Pattern.shared_attrs:
-            return util.get_shared_attr(expr, name)
+            return util.get_tensor_attr(expr, name)
         elif isinstance(pat, Call):
             if (expr.attrs is None) or (name not in expr.attrs.keys()):
                 raise RuntimeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
                 )
             return expr.attrs[name]
-        elif isinstance(pat, Variadic) and name == 'length':
-            return len(pat)
         else:
             raise RuntimeError('Unreachable.')
 
@@ -73,7 +69,9 @@ class AttrEvaluator(AttrVisitor[Env]):
     def visit_symbol(self, sym: Symbol, env: Env):
         val = env[sym]
         if val is None:
-            raise RuntimeError('Symbol \'{}\' not found in environment.'.format(sym))
+            raise RuntimeError(
+                'Symbol \'{}\' not found in environment.'.format(sym)
+            )
         return val
 
     def visit_variadic(self, var: VariadicAttr, env: Env):
