@@ -32,7 +32,7 @@ def get_tensor_attr(expr: relay.Expr, name: str):
         )
     if name == 'shape':
         return expr_ty.concrete_shape
-    elif name == 'dim':
+    elif name == 'ndim':
         return len(expr_ty.concrete_shape)
     elif name == 'dtype':
         return expr_ty.dtype

@@ -306,6 +306,27 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_parallel_group_conv_variadic(self):
+        print('Variadic Group Conv')
+
+        # Source graph
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        w1 = relay.var('w1', shape=(4, 2, 3, 3))
+        w2 = relay.var('w2', shape=(4, 2, 3, 3))
+        w3 = relay.var('w3', shape=(4, 2, 3, 3))
+        conv1 = relay.nn.conv2d(x, w1, padding=(1, 1, 1, 1), groups=2)
+        conv2 = relay.nn.conv2d(x, w2, padding=(1, 1, 1, 1), groups=2)
+        conv3 = relay.nn.conv2d(x, w3, padding=(1, 1, 1, 1), groups=2)
+        y = relay.concatenate([conv1, conv2, conv3], axis=1)
+        wl = Workload.from_expr(y, {'x'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.parallel_group_conv_variadic()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_parallel_dense(self):
         print('Parallel Dense')
 
@@ -465,6 +486,7 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_parallel_conv_variadic'),
+        # RuleTest('test_parallel_group_conv_variadic')
         # RuleTest('test_parallel_dense'),
         # RuleTest('test_parallel_dense_variadic'),
         # RuleTest('test_nasnet_block'),

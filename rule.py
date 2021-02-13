@@ -6,7 +6,7 @@ def trans_trans():
     x = Wildcard()
 
     # Source pattern: (A^T)^T
-    y1 = Transpose(Transpose(x, axes=(0, 2, 1)), axes=(0, 2, 1))
+    y1 = Transpose(Transpose(x, axes=[0, 2, 1]), axes=[0, 2, 1])
 
     # Target pattern: A
     y2 = x
@@ -185,7 +185,7 @@ def conv_mul():
     zeros = Zeros(shape=(k.shape[0],) * 2, dtype=k.dtype)
     diag = ExpandDims(MatrixSetDiag(zeros, Reshape(k, newshape=(-1,))), axis=0)
     conv_mat = Reshape(w, newshape=(1, w.shape[0], -1))
-    matmul = BatchMatmul(diag, Transpose(conv_mat, axes=(0, 2, 1)))
+    matmul = BatchMatmul(diag, Transpose(conv_mat, axes=[0, 2, 1]))
     fused_w = Reshape(matmul, newshape=w.shape)
     y2 = Conv2D(x, fused_w, groups=1, **same_attr(conv, ['strides', 'padding', 'dilation']))
 
@@ -310,6 +310,46 @@ def parallel_conv_expand_kernels():
 
     # Build substitution
     return Substitution([conv1, conv2], [split[0], split[1]])
+
+
+def parallel_group_conv_variadic():
+    # Input
+    x = Wildcard()
+    w1 = Var()
+    w = Var(shape=(w1.shape[0], None, w1.shape[2], w1.shape[3]))
+
+    # Source pattern
+    conv1 = Conv2D(x, w1)
+    conv = Conv2D(x, w, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+    src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
+
+    # Target pattern
+    i = Symbol()
+    w_inst = src(i, w)
+    w_concat = Concatenate(Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
+                           axis=0)
+    w_expand = ExpandDims(w_concat, axis=1, num_newaxis=2)
+    num_conv = src.length
+    groups = conv1.groups
+    chan_per_group = w1.shape[0] // groups
+    w_reshape = Reshape(w_expand, newshape=(num_conv, groups, chan_per_group, -2))
+    w_trans = Transpose(w_reshape, axes=[1, 0, 2, 3, 4, 5])
+    w_comb = Reshape(w_trans, newshape=(-1, w1.shape[1], w1.shape[2], w1.shape[3]))
+
+    conv = Conv2D(x, w_comb, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+    conv_expand = ExpandDims(conv, axis=2, num_newaxis=2)
+    conv_reshape = Reshape(conv_expand, newshape=(0, groups, num_conv, chan_per_group, -2))
+    conv_trans = Transpose(conv_reshape, axes=[0, 2, 1, 3, 4, 5])
+    conv_comb = Squeeze(Reshape(conv_trans, newshape=(0, num_conv * w1.shape[0], 1, 1, -2)),
+                        axis=[2, 3])
+
+    split = Split(conv_comb, indices_or_sections=num_conv, axis=1)
+    i = Symbol()
+    item = split[i]
+    tgt = Variadic(item, [item], index=i)
+
+    # Build substitution
+    return Substitution(src, tgt)
 
 
 def parallel_dense():

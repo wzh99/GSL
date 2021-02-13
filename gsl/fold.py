@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional, Callable, Tuple
 
 import numpy as np
 from tvm import relay, transform, ir
@@ -11,7 +11,7 @@ def fold(wl: Workload) -> Workload:
     """
     Pre-compute graph nodes whose operands are already available in parameter set.
     The folding is performed recursively in reverse post-order, and the result will be stored as
-    new parameter. Folded parameters will be filtered removed from parameter set.
+    new parameter. Folded parameters will be removed from parameter set.
 
     :param wl: Workload object whose parameters need folding.
     :return: Workload object after folding.
@@ -129,11 +129,12 @@ _direct_mapped = {
     'sqrt',
     'zeros',
     'ones',
-    'reshape',
     'transpose',
 }
 
 _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]] = {
+    'reshape':
+        lambda args, attrs: _reshape(args[0], attrs['newshape']),
     'expand_dims':
         lambda args, attrs: _expand_dims(args[0], attrs['axis'], attrs['num_newaxis']),
     'cast':
@@ -146,8 +147,45 @@ _eval_funcs: Dict[str, Callable[[List[np.ndarray], Dict[str, Any]], np.ndarray]]
         lambda args, _: np.matmul(args[0], np.transpose(args[1], axes=(0, 2, 1))),
 }
 
+_reshape_special_values = {0, -2, -3, -4}
+
+
+def _reshape(data: np.ndarray, new_shape: Tuple[int, ...]) -> np.ndarray:
+    data_shape = data.shape
+    shape_idx = 0
+    new_idx = 0
+    np_shape = []
+    while new_idx < len(new_shape):
+        shape_val = new_shape[new_idx]
+        if shape_val not in _reshape_special_values:
+            np_shape.append(shape_val)
+        elif shape_val == 0:
+            np_shape.append(data_shape[shape_idx])
+        elif shape_val == -2:
+            np_shape.extend(data_shape[shape_idx:])
+        elif shape_val == -3:
+            np_shape.append(data_shape[shape_idx] * data_shape[shape_idx + 1])
+            shape_idx += 1
+        elif shape_val == -4:
+            def resolve(a: int, b: int, total: int) -> Tuple[int, int]:
+                if a != -1 and b != -1:
+                    return a, b
+                if a == -1:
+                    a = total // b
+                elif b == -1:
+                    b = total // b
+                return a, b
+
+            np_shape.extend(resolve(new_shape[new_idx + 1], new_shape[new_idx + 2],
+                                    data_shape[shape_idx]))
+            new_idx += 2
+        shape_idx += 1
+        new_idx += 1
+    return data.reshape(tuple(np_shape))
+
 
 def _expand_dims(data: np.ndarray, axis: int, num_newaxis: int) -> np.ndarray:
+    axis = axis if axis >= 0 else data.ndim + 1 + axis
     for i in range(num_newaxis):
         data = np.expand_dims(data, axis + i)
     return data

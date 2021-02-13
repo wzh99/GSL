@@ -60,10 +60,14 @@ class Pattern:
     def __getitem__(self, *item):
         return GetItem(self, item[0])
 
+    tensor_attrs = {'shape', 'dtype', 'ndim'}
+
     def __getattr__(self, name: str) -> GetAttr:
-        raise AttributeError(
-            'Attribute {} not found in pattern node.'.format(name)
-        )
+        if name not in self.tensor_attrs:
+            raise AttributeError(
+                'Attribute {} not found in variable node.'.format(name)
+            )
+        return GetAttr(self, name)
 
     def __neg__(self):
         return Call('negative', self)
@@ -128,26 +132,30 @@ class Var(Pattern):
     not defined in source graph.
     """
 
-    var_attrs = {'shape', 'dtype', 'dim'}
-
-    def __init__(self, **raw_attrs: AttrConvertible):
+    def __init__(self, shape: Union[tuple, Attr, None] = None,
+                 dtype: Union[str, Attr, None] = None,
+                 dim: Union[int, Attr, None] = None):
         super().__init__()
 
         # Check attributes for variable
+        raw_attrs = filter_attrs({
+            'shape': shape, 'dtype': dtype, 'dim': dim,
+        })
         for name, attr in raw_attrs.items():
-            if name in self.var_attrs:
+            if name in self.tensor_attrs:
                 self.attrs[name] = to_attr(attr)
             else:
                 raise AttributeError(
                     'Attribute {} not found in variable node.'.format(name)
                 )
 
-    def __getattr__(self, name: str) -> GetAttr:
-        if name not in self.var_attrs:
-            raise AttributeError(
-                'Attribute {} not found in variable node.'.format(name)
-            )
-        return GetAttr(self, name)
+
+def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    filtered = {}
+    for k, v in attrs.items():
+        if v is not None:
+            filtered[k] = v
+    return filtered
 
 
 ConstValueType = Union[int, float, list, np.ndarray]
