@@ -102,9 +102,12 @@ class _FoldMutator(relay.ExprMutator):
             return dict([(name, util.cvt_ir_value(attrs[name])) for name in attrs.keys()])
 
     def _add_param(self, value: np.ndarray) -> relay.Var:
-        name = self._next_param_name()
-        self.params[name] = value
-        return relay.var(name, shape=value.shape, dtype=str(value.dtype))
+        if value.ndim == 0:
+            return relay.const(value, dtype=str(value.dtype))
+        else:
+            name = self._next_param_name()
+            self.params[name] = value
+            return relay.var(name, shape=value.shape, dtype=str(value.dtype))
 
     def _next_param_name(self) -> str:
         while True:
