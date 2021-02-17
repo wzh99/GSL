@@ -129,7 +129,7 @@ conv = Conv2D(x, w,
 split = Split(conv, indices_or_sections=2, axis=1)
 
 # Build substitution
-return Substitution([conv1, conv2], [split[0], split[1]])
+subst = Substitution([conv1, conv2], [split[0], split[1]])
 ```
 
 GSL can also support variadic pattern, including variadic tuple fields and variadic output nodes. The following substitution removes a split and a following concatenate operation along the same axis. 
@@ -148,7 +148,7 @@ y1 = Concatenate(Variadic(item, templates=[item], index=i), axis=split.axis)
 y2 = x
 
 # Build substitution
-return Substitution(y1, y2)
+subst = Substitution(y1, y2)
 ```
 
 The following is a variadic version of fusing parallel convolutions. This substitution also allows number of output channels to be different. 
@@ -183,7 +183,7 @@ item = split[i]
 tgt = Variadic(item, templates=[item], index=i)
 
 # Build substitution
-return Substitution(src, tgt)
+subst = Substitution(src, tgt)
 ```
 
 For more examples of GSL, see [rule.py](rule.py). 
