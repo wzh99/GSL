@@ -1,5 +1,4 @@
-from collections import deque
-from typing import Set, Deque
+from typing import Set
 
 from .match import *
 
@@ -123,7 +122,7 @@ class ExprRewriter:
                    succ_list: SuccListMap) -> List[relay.Expr]:
         # Initialize stack and its operation
         expr_matched = set()
-        queue: Deque[Tuple[Pattern, relay.Expr]] = deque()
+        stack: List[Tuple[Pattern, relay.Expr]] = []
 
         # Find candidate node-expression pair where the node is connected to matched ones.
         # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
@@ -136,14 +135,14 @@ class ExprRewriter:
                     continue  # successor pattern already matched
                 if ps.src_idx != src_idx:
                     continue  # not source or not the source pattern concerned
-                for es in succ_list[expr]:
-                    if es in expr_matched or es in self.history:
-                        continue  # matched expression cannot be matched again
-                    queue.append((ps, es))
-                    if not isinstance(pat, self.reusable_pat):
-                        # for non-reusable nodes, only the first successor expression node
-                        # could match
-                        break
+                # matched expression cannot be matched again
+                cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
+                                      succ_list[expr]))
+                if isinstance(pat, self.reusable_pat):
+                    for es in reversed(cand_es):
+                        stack.append((ps, es))
+                else:  # for non-reusable patterns, only the first candidate successor could match
+                    stack.append((ps, cand_es[0]))
                 break  # only need to visit first unmatched successor pattern node
 
         # Match each output pattern
@@ -161,11 +160,11 @@ class ExprRewriter:
 
             # Backtrack until the source pattern is reached
             found = False
-            while len(queue) > 0:
-                # Pick one pair from queue
-                p, e = queue.popleft()
+            while len(stack) > 0:
+                # Pick one pair from stack
+                p, e = stack.pop()
 
-                # Add successors to queue if output pattern is not reached
+                # Add successors to stack if output pattern is not reached
                 if p != src_pat:
                     add_succ(p, e)
                     continue
@@ -197,7 +196,7 @@ class ExprRewriter:
             return []  # no expression could be a match
 
         # Find candidate pattern-expression pair
-        queue: Deque[Tuple[Pattern, relay.Expr]] = deque()
+        stack: List[Tuple[Pattern, relay.Expr]] = []
         expr_matched = set()
 
         def add_succ(pat: Pattern, ex: relay.Expr):
@@ -206,12 +205,13 @@ class ExprRewriter:
             if len(pat.src_succ) == 0:
                 return
             p_succ = pat.src_succ[0]
-            for es in succ_list[ex]:
-                if es in expr_matched or es in self.history:
-                    continue
-                queue.append((p_succ, es))
-                if not isinstance(pat, self.reusable_pat):
-                    break
+            cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
+                                  succ_list[ex]))
+            if isinstance(pat, self.reusable_pat):
+                for es in reversed(cand_es):
+                    stack.append((p_succ, es))
+            else:
+                stack.append((p_succ, cand_es[0]))
 
         # Find more matches of variadic pattern
         out_matched = [fst_match]
@@ -226,9 +226,9 @@ class ExprRewriter:
 
             # Backtrack to find the initial field pattern
             found = False
-            while len(queue) > 0:
+            while len(stack) > 0:
                 # Pop one pair from stack
-                p, e = queue.popleft()
+                p, e = stack.pop()
 
                 # Push successors to stack if field pattern is not reached
                 if p not in src_var.pat_inst:
