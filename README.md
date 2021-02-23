@@ -167,8 +167,8 @@ src = Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
 
 # Target pattern
 i = Symbol()
-get_inst = src(i, w)
-concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, 
+w_inst = src(i, w)
+concat = Concatenate(Variadic(w_inst, templates=[w_inst], index=i, 
                               length=src.length),
                      axis=0)
 conv = Conv2D(x, concat, 

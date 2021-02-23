@@ -226,6 +226,21 @@ def merge_element_wise_variadic():
     return Substitution(src, tgt)
 
 
+def dispatch_tuple():
+    # Source pattern
+    x = Wildcard()
+    tup = Variadic(x, templates=[x])
+    get_item = GetItem(tup)
+    src = Variadic(get_item, templates=[get_item])
+
+    # Target pattern
+    i = Symbol()
+    item = tup(src(i, get_item).index, x)
+    tgt = Variadic(item, templates=[item], index=i)
+
+    return Substitution(src, tgt)
+
+
 def parallel_conv():
     # Input
     x = Wildcard()
@@ -258,8 +273,8 @@ def parallel_conv_variadic():
 
     # Target pattern
     i = Symbol()
-    get_inst = src(i, w)
-    concat = Concatenate(Variadic(get_inst, templates=[get_inst], index=i, length=src.length),
+    w_inst = src(i, w)
+    concat = Concatenate(Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
                          axis=0)
     conv = Conv2D(x, concat, **same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
@@ -382,8 +397,8 @@ def parallel_dense_variadic():
 
     # Target pattern
     i = Symbol()
-    get_inst = src(i, w)
-    dense = Dense(x, Concatenate(Variadic(get_inst, templates=[get_inst], index=i,
+    w_inst = src(i, w)
+    dense = Dense(x, Concatenate(Variadic(w_inst, templates=[w_inst], index=i,
                                           length=src.length),
                                  axis=0))
     i = Symbol()

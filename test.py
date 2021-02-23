@@ -247,6 +247,26 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
+    def test_dispatch_tuple(self):
+        print('Dispatch Tuple')
+
+        # Source graph
+        x1 = relay.var('x1', shape=(2, 4))
+        x2 = relay.var('x2', shape=(2, 4))
+        tup = relay.Tuple([x1, x2])
+        y1 = relay.TupleGetItem(tup, 0)
+        y2 = relay.TupleGetItem(tup, 1)
+        y3 = relay.TupleGetItem(tup, 1)
+        y = relay.concatenate([y1, y2, y3], 1)
+        wl = Workload.from_expr(y, {'x1', 'x2'})
+        print(wl.mod)
+
+        # Apply substitution
+        subst = rule.dispatch_tuple()
+        wl = subst(wl)
+        print(wl.mod)
+        self.assertTrue(True)
+
     def test_parallel_conv(self):
         print('Parallel Conv')
 
@@ -483,15 +503,16 @@ if __name__ == '__main__':
         # RuleTest('test_lower_layer_norm'),
         # RuleTest('test_merge_element_wise'),
         # RuleTest('test_merge_element_wise_variadic'),
+        # RuleTest('test_dispatch_tuple'),
         # RuleTest('test_parallel_conv'),
         # RuleTest('test_parallel_conv_expand_kernels'),
         # RuleTest('test_parallel_conv_variadic'),
-        # RuleTest('test_parallel_group_conv_variadic')
+        # RuleTest('test_parallel_group_conv_variadic'),
         # RuleTest('test_parallel_dense'),
         # RuleTest('test_parallel_dense_variadic'),
         # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),
-        # ModelTest('test_transformer')
+        # ModelTest('test_transformer'),
     ])
     unittest.TextTestRunner().run(suite)
