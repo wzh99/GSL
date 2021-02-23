@@ -36,14 +36,14 @@ class AttrEvaluator(AttrVisitor[Env]):
         expr = self.pat_to_expr[pat]
 
         # Get attribute from expression
-        if name in Pattern.tensor_attrs:
+        if isinstance(pat, Var) and name in Var.tensor_attrs:
             return util.get_tensor_attr(expr, name)
         elif isinstance(pat, Call) and expr.attrs is not None and name in expr.attrs.keys():
             return expr.attrs[name]
         elif isinstance(pat, GetItem) and name == 'index':
             return expr.index
         else:
-            raise RuntimeError('Unreachable.')
+            raise RuntimeError('Cannot get attribute from expression.')
 
     def visit_tuple(self, tup_attr: TupleAttr, env: Env):
         return tuple([self.visit(f, env) for f in tup_attr.fields])
@@ -97,5 +97,5 @@ class AttrEvaluator(AttrVisitor[Env]):
 
 
 def eval_get_inst(get_inst: GetInstance, pat_to_expr: PatExprMap, env: Env) -> Pattern:
-    idx = AttrEvaluator(pat_to_expr).visit(get_inst.index, env)
-    return get_inst.var.get_instance(idx, get_inst.t)
+    idx = AttrEvaluator(pat_to_expr).visit(get_inst.idx, env)
+    return get_inst.var.get_inst(idx, get_inst.t)

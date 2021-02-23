@@ -57,15 +57,16 @@ class Pattern:
                 return True
         return False
 
+    def has_attr(self, name: str) -> bool:
+        return False
+
     def __getitem__(self, *item):
         return GetItem(self, item[0])
 
-    tensor_attrs = {'shape', 'dtype', 'ndim'}
-
     def __getattr__(self, name: str) -> GetAttr:
-        if name not in self.tensor_attrs:
+        if not self.has_attr(name):
             raise AttributeError(
-                'Attribute {} not found in variable node.'.format(name)
+                'Attribute {} not found in pattern.'.format(name)
             )
         return GetAttr(self, name)
 
@@ -132,6 +133,8 @@ class Var(Pattern):
     not defined in source graph.
     """
 
+    tensor_attrs = {'shape', 'dtype', 'ndim'}
+
     def __init__(self, shape: Union[tuple, Attr, None] = None,
                  dtype: Union[str, Attr, None] = None,
                  dim: Union[int, Attr, None] = None):
@@ -148,6 +151,9 @@ class Var(Pattern):
                 raise AttributeError(
                     'Attribute {} not found in variable node.'.format(name)
                 )
+
+    def has_attr(self, name: str) -> bool:
+        return name in self.tensor_attrs
 
 
 def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
@@ -267,7 +273,7 @@ class Call(Pattern):
         # Check if specified attributes really exists in op
         if isinstance(op, ConcreteOp):
             attr_names = spec.get_op_attr_names(op.name)
-            for name, val in self.attrs.items():
+            for name in self.attrs.keys():
                 if name not in attr_names:
                     raise AttributeError(
                         'Attribute \'{}\' not found in op \'{}\'.'.format(name, op.name)
@@ -277,16 +283,12 @@ class Call(Pattern):
     def pred(self):
         return self.args
 
-    def __getattr__(self, name: str):
-        # Validate attribute name for concrete op
+    def has_attr(self, name: str) -> bool:
         if isinstance(self.op, ConcreteOp):
             attr_names = spec.get_op_attr_names(self.op.name)
-            if name not in attr_names:
-                raise AttributeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, self.op)
-                )
-
-        return GetAttr(self, name)
+            return name in attr_names
+        else:
+            return True
 
 
 def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
@@ -306,7 +308,7 @@ class Tup(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
-        for f in raw_fields:
+        for f in self.fields:
             f.succ.append(self)
 
     @property
@@ -315,28 +317,18 @@ class Tup(Pattern):
 
 
 class GetItem(Pattern):
-    def __init__(self, tup: Pattern, index: AttrConvertible):
+    def __init__(self, tup: Pattern, index: AttrConvertible = None):
         super().__init__()
         self.tup = tup
-        self.index: Attr = to_attr(index)
+        self.idx = to_attr(index)
         tup.succ.append(self)
 
     @property
     def pred(self):
         return [self.tup]
 
-    def __getattr__(self, name: str):
-        # Check shared attributes first
-        if name in self.shared_attrs:
-            return super().__getattr__(name)
-
-        # Validate attribute name for concrete op
-        if name != 'index':
-            raise AttributeError(
-                'Attribute {} not found in get-item pattern.'.format(name)
-            )
-
-        return GetAttr(self, name)
+    def has_attr(self, name: str) -> bool:
+        return name == 'index'
 
 
 class Variadic(Pattern):
@@ -356,8 +348,8 @@ class Variadic(Pattern):
             matched, a unique pattern will be created. Note that if at least one sub-pattern is a
             template, the whole pattern must be a template as well.
         :param first: Pattern used in firstly matched expression. Sometimes, there are constraints
-            imposed between template patterns. In this situation, pattern duplicated for firstly
-            matched expression is different from the rest. The i-th pattern in first list will be
+            imposed between template patterns. In this situation, pattern used for matching the
+            first expression is different from the rest. The i-th pattern in first list will be
             used for the i-th template at first match.
         :param index: Symbol that indicates the index of matched expression.
         :param length: An attribute expression that indicates how long the pattern will be. In
@@ -425,12 +417,8 @@ class Variadic(Pattern):
     def pred(self):
         return self.pat_inst
 
-    def __getattr__(self, item: str):
-        if item != 'length':
-            raise ValueError(
-                'Attribute \'{}\' not found in variadic pattern.'.format(item)
-            )
-        return GetAttr(self, item)
+    def has_attr(self, name: str) -> bool:
+        return name == 'length'
 
     def __call__(self, index: AttrConvertible, t: Pattern):
         if t not in self.templates:
@@ -440,7 +428,7 @@ class Variadic(Pattern):
     def __len__(self) -> int:
         return len(self.pat_inst)
 
-    def get_instance(self, idx: int, t: Pattern):
+    def get_inst(self, idx: int, t: Pattern):
         if idx >= len(self):
             raise RuntimeError(
                 'Index {} out of bound {}.'.format(idx, len(self))
@@ -491,8 +479,11 @@ class GetInstance(Pattern):
     def __init__(self, var: Variadic, index: Attr, t: Pattern):
         super().__init__()
         self.var = var
-        self.index = index
+        self.idx = index
         self.t = t
+
+    def has_attr(self, name: str) -> bool:
+        return True
 
 
 class PatternVisitor(Generic[ArgType]):
@@ -594,13 +585,13 @@ class _PatInst(PatternVisitor[None]):
         return Tup(*fields)
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Pattern:
-        return GetItem(self.visit(getitem.tup, arg), getitem.index)
+        return GetItem(self.visit(getitem.tup, arg), getitem.idx)
 
     def visit_variadic(self, var: Variadic, arg: None) -> Pattern:
         raise RuntimeError('Unreachable.')
 
     def visit_get_instance(self, get_inst: GetInstance, arg: None) -> Pattern:
-        return GetInstance(get_inst.var, get_inst.index, get_inst.t)
+        return GetInstance(get_inst.var, get_inst.idx, get_inst.t)
 
     def _visit_pred(self, pat: Pattern, arg: None) -> List[Pattern]:
         return [self.visit(p, arg) for p in pat.pred]
@@ -645,7 +636,7 @@ class _Visualizer(PatternVisitor[None]):
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Any:
         node_id = self._next_id()
-        self.graph.node(node_id, label='.{}'.format(getitem.index), **self.attrs)
+        self.graph.node(node_id, label='.{}'.format(getitem.idx), **self.attrs)
         self.graph.edge(self.visit(getitem.tup, arg), node_id)
         return node_id
 

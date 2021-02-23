@@ -133,8 +133,7 @@ class Matcher:
             return False
         if not self.match(getitem.tup, expr.tuple_value, env):
             return False
-        idx = AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
-        return idx == expr.index
+        return self.match_attr(getitem.idx, expr.index, env)
 
     def match_variadic(self, var: Variadic, expr: relay.Expr, env: Env) -> bool:
         # Matches tuple node

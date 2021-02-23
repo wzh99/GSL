@@ -152,7 +152,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: GetItem, env: Env) -> Any:
         super().visit_getitem(getitem, env)
-        self.attr_checker.visit(getitem.index, env)
+        self.attr_checker.visit(getitem.idx, env)
 
     def visit_variadic(self, var: Variadic, env: Env) -> Any:
         # Add index to environment
@@ -178,7 +178,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
-        self.attr_checker.visit(get_inst.index, env)
+        self.attr_checker.visit(get_inst.idx, env)
 
 
 class _SrcAttrChecker(AttrVisitor[Env]):
@@ -261,7 +261,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
 
     def visit_variadic(self, var: Variadic, env: Env) -> Any:
         # Check length
-        if not var.is_output:
+        if not var.is_output and not var.in_src:
             if var.len is None:
                 raise ValueError(
                     'Length is not specified for non-output target pattern.'
@@ -282,18 +282,12 @@ class _TgtPatChecker(PatternVisitor[Env]):
 
     def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
-        self.attr_checker.visit(get_inst.index, env)
+        self.attr_checker.visit(get_inst.idx, env)
 
 
 class _TgtAttrChecker(AttrVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
-
-    def visit_getattr(self, get_attr: GetAttr, env: Env):
-        if get_attr.pat not in self.src_nodes:
-            raise AttributeError(
-                'Attribute in target pattern refers to node not defined in source pattern.'
-            )
 
     def visit_variadic(self, var: VariadicAttr, env: Env) -> Any:
         if var.len is None:

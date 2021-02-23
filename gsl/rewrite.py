@@ -210,7 +210,7 @@ class ExprRewriter:
             if isinstance(pat, self.reusable_pat):
                 for es in reversed(cand_es):
                     stack.append((p_succ, es))
-            else:
+            elif len(cand_es) > 0:
                 stack.append((p_succ, cand_es[0]))
 
         # Find more matches of variadic pattern
@@ -362,7 +362,7 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
-        idx = AttrEvaluator(self.pat_to_expr).visit(getitem.index, env)
+        idx = AttrEvaluator(self.pat_to_expr).visit(getitem.idx, env)
         return tup[idx]
 
     def visit_variadic(self, var: Variadic, env: Env) -> relay.Expr:
