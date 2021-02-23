@@ -141,7 +141,7 @@ class ExprRewriter:
                 if isinstance(pat, self.reusable_pat):
                     for es in reversed(cand_es):
                         stack.append((ps, es))
-                else:  # for non-reusable patterns, only the first candidate successor could match
+                elif len(cand_es) > 0:  # for non-reusable patterns, only the first candidate successor could match
                     stack.append((ps, cand_es[0]))
                 break  # only need to visit first unmatched successor pattern node
 
@@ -215,7 +215,6 @@ class ExprRewriter:
 
         # Find more matches of variadic pattern
         out_matched = [fst_match]
-        count = 1
         while True:
             # Collect all matched expressions
             expr_matched.update(pat_to_expr.values())
@@ -236,7 +235,8 @@ class ExprRewriter:
                     continue
 
                 # Try matching field with expression
-                env = Env() if src_var.index is None else Env(symbol=src_var.index, value=count)
+                env = Env() if src_var.index is None else \
+                    Env(symbol=src_var.index, value=len(out_matched))
                 matcher = Matcher(pat_to_expr.copy())
                 result = matcher.match(src_var.instantiate(), e, env)
                 if not result:
@@ -246,7 +246,6 @@ class ExprRewriter:
                 # Add matched expression to record
                 pat_to_expr.update(matcher.pat_to_expr)
                 out_matched.append(e)
-                count += 1
                 found = True
                 break
 
