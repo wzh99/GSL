@@ -163,7 +163,8 @@ def lower_layer_norm():
     # (data - mean(data)) / sqrt(var(data) + epsilon)) * gamma + beta
     mean = Mean(x, axis=(-1,), keepdims=True)
     demean = x - mean
-    var = Sum(demean * demean, axis=(-1,), keepdims=True) / Cast(gamma.shape[0], dtype=gamma.dtype)
+    var = Sum(demean * demean, axis=(-1,),
+              keepdims=True) / Cast(gamma.shape[0], dtype=gamma.dtype)
     norm = demean / Sqrt(var + y1.epsilon)
     y2 = norm * gamma + beta
 
@@ -181,12 +182,8 @@ def conv_mul():
     conv = Conv2D(x, w, groups=1)
     y1 = conv * k
 
-    # Target pattern: conv2d(x, matmul(diag(k), reshape(w)))
-    zeros = Zeros(shape=(k.shape[0],) * 2, dtype=k.dtype)
-    diag = ExpandDims(MatrixSetDiag(zeros, Reshape(k, newshape=(-1,))), axis=0)
-    conv_mat = Reshape(w, newshape=(1, w.shape[0], -1))
-    matmul = BatchMatmul(diag, Transpose(conv_mat, axes=[0, 2, 1]))
-    fused_w = Reshape(matmul, newshape=w.shape)
+    # Target pattern: conv2d(x, w * k)
+    fused_w = w * ExpandDims(k, axis=1, num_newaxis=1)
     y2 = Conv2D(x, fused_w, groups=1, **same_attr(conv, ['strides', 'padding', 'dilation']))
 
     # Build substitution
