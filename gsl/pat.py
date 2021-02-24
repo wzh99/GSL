@@ -57,8 +57,12 @@ class Pattern:
                 return True
         return False
 
+    @property
+    def avail_attrs(self) -> List[str]:
+        return []
+
     def has_attr(self, name: str) -> bool:
-        return False
+        return name in self.avail_attrs
 
     def __getitem__(self, *item):
         return GetItem(self, item[0])
@@ -133,7 +137,7 @@ class Var(Pattern):
     not defined in source graph.
     """
 
-    tensor_attrs = {'shape', 'dtype', 'ndim'}
+    tensor_attrs = ['shape', 'dtype', 'ndim']
 
     def __init__(self, shape: Union[tuple, Attr, None] = None,
                  dtype: Union[str, Attr, None] = None,
@@ -152,8 +156,9 @@ class Var(Pattern):
                     'Attribute {} not found in variable node.'.format(name)
                 )
 
-    def has_attr(self, name: str) -> bool:
-        return name in self.tensor_attrs
+    @property
+    def avail_attrs(self) -> List[str]:
+        return self.tensor_attrs
 
 
 def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
@@ -327,8 +332,9 @@ class GetItem(Pattern):
     def pred(self):
         return [self.tup]
 
-    def has_attr(self, name: str) -> bool:
-        return name == 'index'
+    @property
+    def avail_attrs(self) -> List[str]:
+        return ['index']
 
 
 class Variadic(Pattern):
@@ -417,8 +423,9 @@ class Variadic(Pattern):
     def pred(self):
         return self.pat_inst
 
-    def has_attr(self, name: str) -> bool:
-        return name == 'length'
+    @property
+    def avail_attrs(self) -> List[str]:
+        return ['length']
 
     def __call__(self, index: AttrConvertible, t: Pattern):
         if t not in self.templates:

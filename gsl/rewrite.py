@@ -141,7 +141,7 @@ class ExprRewriter:
                 if isinstance(pat, self.reusable_pat):
                     for es in reversed(cand_es):
                         stack.append((ps, es))
-                elif len(cand_es) > 0:  # for non-reusable patterns, only the first candidate successor could match
+                elif len(cand_es) > 0:
                     stack.append((ps, cand_es[0]))
                 break  # only need to visit first unmatched successor pattern node
 
