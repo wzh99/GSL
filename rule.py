@@ -179,12 +179,13 @@ def conv_mul():
     k = Var(shape=(None, 1, 1))
 
     # Source pattern: conv2d(x, w) * k
-    conv = Conv2D(x, w, groups=1)
+    conv = Conv2D(x, w)
     y1 = conv * k
 
     # Target pattern: conv2d(x, w * k)
     fused_w = w * ExpandDims(k, axis=1, num_newaxis=1)
-    y2 = Conv2D(x, fused_w, groups=1, **same_attr(conv, ['strides', 'padding', 'dilation']))
+    y2 = Conv2D(x, fused_w,
+                **same_attr(conv, ['strides', 'padding', 'dilation', 'groups']))
 
     # Build substitution
     return Substitution(y1, y2)

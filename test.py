@@ -165,13 +165,13 @@ class RuleTest(unittest.TestCase):
         print('Conv-BatchNorm')
 
         # Source graph
-        x = relay.var('x', shape=(2, 2, 4, 4))
-        w = relay.var('w', shape=(2, 2, 3, 3))
-        gamma = relay.var('gamma', shape=(2,))
-        beta = relay.var('beta', shape=(2,))
-        moving_mean = relay.var('moving_mean', shape=(2,))
-        moving_var = relay.var('moving_var', shape=(2,))
-        conv = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        w = relay.var('w', shape=(4, 2, 3, 3))
+        gamma = relay.var('gamma', shape=(4,))
+        beta = relay.var('beta', shape=(4,))
+        moving_mean = relay.var('moving_mean', shape=(4,))
+        moving_var = relay.var('moving_var', shape=(4,))
+        conv = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1), groups=2)
         y = relay.nn.batch_norm(conv, gamma, beta, moving_mean, moving_var)[0]
         wl = Workload.from_expr(y, {'x'}, name='conv_bn')
         print(wl.mod)
