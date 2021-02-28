@@ -1,6 +1,13 @@
-from typing import Set
+from typing import Set, List, Dict, Tuple, Optional
 
-from .match import *
+import numpy as np
+from tvm import relay
+
+from . import pat, spec, util
+from .attr import Attr, Env
+from .eval import PatExprMap, AttrEvaluator, eval_get_inst
+from .match import Matcher
+from .pat import Pattern, PatternVisitor
 
 SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
@@ -27,7 +34,7 @@ class ExprRewriter:
             pat_to_expr: PatExprMap = dict()
             if self.is_var:  # match variadic with different procedure
                 # noinspection PyTypeChecker
-                src_var: Variadic = self.src_outs[0]
+                src_var: pat.Variadic = self.src_outs[0]
                 src_matched = self.match_variadic(src_var, expr, pat_to_expr, succ_list)
                 if len(src_matched) == 0:
                     break
@@ -73,7 +80,7 @@ class ExprRewriter:
         for p in self.tgt_outs:
             p.clear()
 
-    def match_one(self, pat: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
+    def match_one(self, pattern: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
             -> Optional[relay.Expr]:
         # Traverse the expression graph
         class StackElem:
@@ -107,7 +114,7 @@ class ExprRewriter:
 
                 # Use first pattern to roughly locate the subgraph
                 matcher = Matcher(pat_to_expr.copy())
-                res = matcher.match(pat, cur_expr, Env())
+                res = matcher.match(pattern, cur_expr, Env())
                 if not res:
                     self.history.add(cur_expr)
                     continue  # even first pattern is not matched, skip this expression
@@ -116,7 +123,7 @@ class ExprRewriter:
 
         return None
 
-    reusable_pat = (Wildcard, Var)
+    reusable_pat = (pat.Wildcard, pat.Var)
 
     def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:
@@ -127,10 +134,10 @@ class ExprRewriter:
         # Find candidate node-expression pair where the node is connected to matched ones.
         # Since we required the i-th pattern is connected to the union of 0..i-th patterns,
         # there must exist some node that satisfies the condition.
-        def add_succ(pat: Pattern, expr: relay.Expr):
+        def add_succ(pattern: Pattern, expr: relay.Expr):
             if expr not in succ_list:
                 return
-            for ps in pat.succ:
+            for ps in pattern.succ:
                 if ps in pat_to_expr:
                     continue  # successor pattern already matched
                 if ps.src_idx != src_idx:
@@ -138,7 +145,7 @@ class ExprRewriter:
                 # matched expression cannot be matched again
                 cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
                                       succ_list[expr]))
-                if isinstance(pat, self.reusable_pat):
+                if isinstance(pattern, self.reusable_pat):
                     for es in reversed(cand_es):
                         stack.append((ps, es))
                 elif len(cand_es) > 0:
@@ -188,7 +195,7 @@ class ExprRewriter:
 
         return output_matched
 
-    def match_variadic(self, src_var: Variadic, expr: relay.Expr, pat_to_expr: PatExprMap,
+    def match_variadic(self, src_var: pat.Variadic, expr: relay.Expr, pat_to_expr: PatExprMap,
                        succ_list: SuccListMap) -> List[relay.Expr]:
         # Search for first match of field pattern
         fst_match = self.match_one(src_var.instantiate(), expr, pat_to_expr)
@@ -199,15 +206,15 @@ class ExprRewriter:
         stack: List[Tuple[Pattern, relay.Expr]] = []
         expr_matched = set()
 
-        def add_succ(pat: Pattern, ex: relay.Expr):
+        def add_succ(pattern: Pattern, ex: relay.Expr):
             if ex not in succ_list:
                 return
-            if len(pat.src_succ) == 0:
+            if len(pattern.src_succ) == 0:
                 return
-            p_succ = pat.src_succ[0]
+            p_succ = pattern.src_succ[0]
             cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
                                   succ_list[ex]))
-            if isinstance(pat, self.reusable_pat):
+            if isinstance(pattern, self.reusable_pat):
                 for es in reversed(cand_es):
                     stack.append((p_succ, es))
             elif len(cand_es) > 0:
@@ -254,8 +261,8 @@ class ExprRewriter:
                 return out_matched
 
     @classmethod
-    def build_variadic(cls, src_var: Variadic, tgt_var: Variadic, pat_to_expr: PatExprMap) \
-            -> List[relay.Expr]:
+    def build_variadic(cls, src_var: pat.Variadic, tgt_var: pat.Variadic,
+                       pat_to_expr: PatExprMap) -> List[relay.Expr]:
         length = len(src_var)
         tgt_outs: List[relay.Expr] = []
         for i in range(length):
@@ -317,15 +324,15 @@ class _RelayBuilder(PatternVisitor[Env]):
         super().__init__()
         self.pat_to_expr = pat_to_expr
 
-    def visit(self, pat: Pattern, env: Env) -> relay.Expr:
-        if pat in self.pat_to_expr:
-            return self.pat_to_expr[pat]
+    def visit(self, p: Pattern, env: Env) -> relay.Expr:
+        if p in self.pat_to_expr:
+            return self.pat_to_expr[p]
         else:
-            expr = super().visit(pat, env)
-            self.pat_to_expr[pat] = expr
+            expr = super().visit(p, env)
+            self.pat_to_expr[p] = expr
             return expr
 
-    def visit_const(self, const: Const, env: Env) -> relay.Expr:
+    def visit_const(self, const: pat.Const, env: Env) -> relay.Expr:
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
@@ -334,7 +341,7 @@ class _RelayBuilder(PatternVisitor[Env]):
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
-    def visit_call(self, call: Call, env: Env) -> relay.Expr:
+    def visit_call(self, call: pat.Call, env: Env) -> relay.Expr:
         args = [self.visit(a, env) for a in call.args]
         attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr, env))
                       for name, attr in call.attrs.items()])
@@ -348,23 +355,23 @@ class _RelayBuilder(PatternVisitor[Env]):
                 'set {}.'.format(op_name, len(args), attrs))
         return call_expr
 
-    def visit_op(self, op: Op, env: Env) -> str:
-        if isinstance(op, ConcreteOp):
+    def visit_op(self, op: pat.Op, env: Env) -> str:
+        if isinstance(op, pat.ConcreteOp):
             return op.name
-        elif isinstance(op, OpWithFlag):
+        elif isinstance(op, pat.OpWithFlag):
             return self.pat_to_expr[op].name
         else:
             raise RuntimeError('Unreachable.')
 
-    def visit_tuple(self, tup: Tup, env: Env) -> relay.Expr:
+    def visit_tuple(self, tup: pat.Tuple, env: Env) -> relay.Expr:
         return relay.Tuple([self.visit(f, env) for f in tup.fields])
 
-    def visit_getitem(self, getitem: GetItem, env: Env) -> relay.Expr:
+    def visit_getitem(self, getitem: pat.GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
         idx = AttrEvaluator(self.pat_to_expr).visit(getitem.idx, env)
         return tup[idx]
 
-    def visit_variadic(self, var: Variadic, env: Env) -> relay.Expr:
+    def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
         length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)
 
@@ -379,7 +386,7 @@ class _RelayBuilder(PatternVisitor[Env]):
 
         return relay.Tuple(fields)
 
-    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> relay.Expr:
+    def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> relay.Expr:
         inst = eval_get_inst(get_inst, self.pat_to_expr, env)
         return self.pat_to_expr[inst]
 

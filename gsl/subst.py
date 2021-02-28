@@ -1,15 +1,16 @@
 from inspect import signature, Parameter
-from typing import Set
+from typing import Union, List, Set, Optional, Any
 
 from tvm import relay, transform, ir
 
-from . import fold
-from .pat import *
+from . import attr, pat, spec, fold
+from .attr import Env, AttrVisitor
+from .pat import Pattern, PatternVisitor
 from .rewrite import ExprRewriter
 from .work import Workload
 
 
-class Substitution:
+class Subst:
     """
     Represents a graph substitution rule.
     """
@@ -41,12 +42,12 @@ class Substitution:
 
         # Check source and target if variadic pattern is provided
         self.is_var = False
-        if any([isinstance(p, Variadic) for p in src_outs]):
+        if any([isinstance(p, pat.Variadic) for p in src_outs]):
             if len(src_outs) != 1:
                 raise ValueError(
                     'Variadic must be the only one pattern of source.'
                 )
-            if len(tgt_outs) != 1 or not isinstance(tgt_outs[0], Variadic):
+            if len(tgt_outs) != 1 or not isinstance(tgt_outs[0], pat.Variadic):
                 raise ValueError(
                     'Variadic must be the only one pattern of target.'
                 )
@@ -78,7 +79,7 @@ class Substitution:
         # Check connectivity of variadic source
         if self.is_var:
             # noinspection PyTypeChecker
-            var: Variadic = src_outs[0]
+            var: pat.Variadic = src_outs[0]
             non_tpl = src_pats.difference([var], var.templates, var.first)
             if len(non_tpl) == 0:
                 raise ValueError(
@@ -131,30 +132,30 @@ class _SrcPatChecker(PatternVisitor[Env]):
     def has_visited(self, node: Pattern):
         return node in self.visited or node in self.prev_visited
 
-    def visit(self, pat: Pattern, env: Env):
-        if (not self.has_visited(pat)) and pat.is_used:
+    def visit(self, p: Pattern, env: Env):
+        if (not self.has_visited(p)) and p.is_used:
             raise ValueError(
                 'Node in source pattern has been used in other substitutions.'
             )
-        super().visit(pat, env)
-        pat.src_idx = self.idx
+        super().visit(p, env)
+        p.src_idx = self.idx
 
-    def visit_const(self, const: Const, env: Env) -> Any:
-        if isinstance(const.value, Attr):
+    def visit_const(self, const: pat.Const, env: Env) -> Any:
+        if isinstance(const.value, attr.Attr):
             self.attr_checker.visit(const.value, env)
 
-    def visit_call(self, call: Call, env: Env) -> Any:
+    def visit_call(self, call: pat.Call, env: Env) -> Any:
         super().visit_call(call, env)
 
         # Check if all attribute expressions only contain reference to visited nodes
         for a in call.attrs.values():
             self.attr_checker.visit(a, env)
 
-    def visit_getitem(self, getitem: GetItem, env: Env) -> Any:
+    def visit_getitem(self, getitem: pat.GetItem, env: Env) -> Any:
         super().visit_getitem(getitem, env)
         self.attr_checker.visit(getitem.idx, env)
 
-    def visit_variadic(self, var: Variadic, env: Env) -> Any:
+    def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Add index to environment
         new_env = env
         if var.index is not None:
@@ -176,7 +177,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
         if var.len is not None:
             self.attr_checker.visit(var.len, env)
 
-    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
+    def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
         self.attr_checker.visit(get_inst.idx, env)
 
@@ -185,17 +186,17 @@ class _SrcAttrChecker(AttrVisitor[Env]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
-    def visit_getattr(self, get_attr: GetAttr, env: Env):
+    def visit_getattr(self, get_attr: attr.GetAttr, env: Env):
         if not self.checker.has_visited(get_attr.pat):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
 
-    def visit_symbol(self, sym: Symbol, env: Env) -> Any:
+    def visit_symbol(self, sym: attr.Symbol, env: Env) -> Any:
         if sym not in env:
             raise KeyError('Symbol not found in environment.')
 
-    def visit_variadic(self, var: VariadicAttr, env: Env) -> Any:
+    def visit_variadic(self, var: attr.Variadic, env: Env) -> Any:
         if var.len is not None:
             self.visit(var.len, env)
         new_env = env if var.index is None else env + (var.index, True)
@@ -208,39 +209,39 @@ class _TgtPatChecker(PatternVisitor[Env]):
         self.src_nodes = src_nodes
         self.attr_checker = _TgtAttrChecker(self.src_nodes)
 
-    def visit(self, pat: Pattern, env: Env):
-        if not (pat in self.visited or pat in self.src_nodes) \
-                and pat.in_tgt:
+    def visit(self, p: Pattern, env: Env):
+        if not (p in self.visited or p in self.src_nodes) \
+                and p.in_tgt:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
-        super().visit(pat, env)
-        pat.in_tgt = True
+        super().visit(p, env)
+        p.in_tgt = True
 
-    def visit_wildcard(self, wildcard: Wildcard, env: Env) -> Any:
+    def visit_wildcard(self, wildcard: pat.Wildcard, env: Env) -> Any:
         if wildcard not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
-    def visit_var(self, var: Var, env: Env) -> Any:
+    def visit_var(self, var: pat.Var, env: Env) -> Any:
         if var not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'
             )
 
-    def visit_const(self, const: Const, env: Env) -> Any:
+    def visit_const(self, const: pat.Const, env: Env) -> Any:
         if const.value is None:
             raise ValueError(
                 'Constant node in target pattern must contain a value.'
             )
 
-    def visit_call(self, call: Call, env: Env) -> Any:
+    def visit_call(self, call: pat.Call, env: Env) -> Any:
         # Visit arguments
         super().visit_call(call, env)
 
         # Check if all non-default attributes are provided for concrete op
-        if isinstance(call.op, ConcreteOp):
+        if isinstance(call.op, pat.ConcreteOp):
             op_name = call.op.name
             func = spec.get_func(op_name)
             num_input = spec.get_num_inputs(op_name)
@@ -259,7 +260,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         for a in call.attrs.values():
             self.attr_checker.visit(a, env)
 
-    def visit_variadic(self, var: Variadic, env: Env) -> Any:
+    def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Check length
         if not var.is_output and not var.in_src:
             if var.len is None:
@@ -280,7 +281,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
             if var.has_first(t):
                 self.visit(var.tpl_to_fst[t], new_env)
 
-    def visit_get_instance(self, get_inst: GetInstance, env: Env) -> Any:
+    def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
         self.attr_checker.visit(get_inst.idx, env)
 
@@ -289,7 +290,7 @@ class _TgtAttrChecker(AttrVisitor[Env]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
-    def visit_variadic(self, var: VariadicAttr, env: Env) -> Any:
+    def visit_variadic(self, var: attr.Variadic, env: Env) -> Any:
         if var.len is None:
             raise ValueError(
                 'Length is not specified for variadic attribute in target pattern.'

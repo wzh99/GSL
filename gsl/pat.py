@@ -1,9 +1,8 @@
-from typing import List
+from typing import List, Dict, Callable, Union, Any, Optional, Generic, TypeVar
 
 import numpy as np
 
-from . import spec
-from .attr import *
+from . import attr, spec
 from .util import default_font_name
 
 
@@ -15,7 +14,7 @@ class Pattern:
     NOT_IN_SRC = -1
 
     def __init__(self):
-        self.attrs: Dict[str, Attr] = {}
+        self.attrs: Dict[str, attr.Attr] = {}
         self.succ: List[Pattern] = []
         self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
@@ -67,12 +66,12 @@ class Pattern:
     def __getitem__(self, *item):
         return GetItem(self, item[0])
 
-    def __getattr__(self, name: str) -> GetAttr:
+    def __getattr__(self, name: str) -> attr.GetAttr:
         if not self.has_attr(name):
             raise AttributeError(
                 'Attribute {} not found in pattern.'.format(name)
             )
-        return GetAttr(self, name)
+        return attr.GetAttr(self, name)
 
     def __neg__(self):
         return Call('negative', self)
@@ -139,21 +138,21 @@ class Var(Pattern):
 
     tensor_attrs = ['shape', 'dtype', 'ndim']
 
-    def __init__(self, shape: Union[tuple, Attr, None] = None,
-                 dtype: Union[str, Attr, None] = None,
-                 dim: Union[int, Attr, None] = None):
+    def __init__(self, shape: Union[tuple, attr.Attr, None] = None,
+                 dtype: Union[str, attr.Attr, None] = None,
+                 dim: Union[int, attr.Attr, None] = None):
         super().__init__()
 
         # Check attributes for variable
         raw_attrs = filter_attrs({
             'shape': shape, 'dtype': dtype, 'dim': dim,
         })
-        for name, attr in raw_attrs.items():
-            if name in self.tensor_attrs:
-                self.attrs[name] = to_attr(attr)
+        for n, a in raw_attrs.items():
+            if n in self.tensor_attrs:
+                self.attrs[n] = attr.to_attr(a)
             else:
                 raise AttributeError(
-                    'Attribute {} not found in variable node.'.format(name)
+                    'Attribute {} not found in variable node.'.format(n)
                 )
 
     @property
@@ -176,9 +175,9 @@ class Const(Pattern):
     """
     A constant nodes stores constants in graph.
     """
-    value_class = (int, float, list, np.ndarray, Attr)
+    value_class = (int, float, list, np.ndarray, attr.Attr)
 
-    def __init__(self, value: Union[ConstValueType, Attr, None]):
+    def __init__(self, value: Union[ConstValueType, attr.Attr, None]):
         """
         Constructor.
 
@@ -191,7 +190,7 @@ class Const(Pattern):
         super().__init__()
         if value is None:
             self.value = None
-        elif isinstance(value, (Attr, np.ndarray)):
+        elif isinstance(value, (attr.Attr, np.ndarray)):
             self.value = value
         elif isinstance(value, (int, float, list)):
             self.value = np.array(value)
@@ -272,7 +271,7 @@ class Call(Pattern):
 
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs.update(
-            dict([(name, to_attr(val)) for name, val in raw_attr.items()])
+            dict([(name, attr.to_attr(val)) for name, val in raw_attr.items()])
         )
 
         # Check if specified attributes really exists in op
@@ -296,7 +295,7 @@ class Call(Pattern):
             return True
 
 
-def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
+def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, attr.Attr]:
     """
     Create a attribute expression dictionary with form `a=p.a` where `a` is attribute name from
     the list, and `p` is a pattern node. This function is especially useful for specifying
@@ -309,7 +308,7 @@ def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, Attr]:
     return dict([(a, pat.__getattr__(a)) for a in attrs])
 
 
-class Tup(Pattern):
+class Tuple(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
@@ -322,10 +321,10 @@ class Tup(Pattern):
 
 
 class GetItem(Pattern):
-    def __init__(self, tup: Pattern, index: AttrConvertible = None):
+    def __init__(self, tup: Pattern, index: attr.AttrConvertible = None):
         super().__init__()
         self.tup = tup
-        self.idx = to_attr(index)
+        self.idx = attr.to_attr(index)
         tup.succ.append(self)
 
     @property
@@ -343,9 +342,12 @@ class Variadic(Pattern):
     arbitrary number of output nodes, each with the same pattern.
     """
 
-    def __init__(self, pat: Pattern, templates: Optional[List[Pattern]] = None,
-                 first: Optional[List[Optional[Pattern]]] = None, index: Optional[Symbol] = None,
-                 length: Optional[AttrConvertible] = None, min_len: Optional[int] = None):
+    def __init__(self, pat: Pattern,
+                 templates: Optional[List[Pattern]] = None,
+                 first: Optional[List[Optional[Pattern]]] = None,
+                 index: Optional[attr.Symbol] = None,
+                 length: Optional[attr.AttrConvertible] = None,
+                 min_len: Optional[int] = None):
         """
         Constructor.
 
@@ -410,9 +412,9 @@ class Variadic(Pattern):
 
         # Initialize index and length
         self.index = index
-        self.len: Optional[Attr] = None
+        self.len: Optional[attr.Attr] = None
         if length is not None:
-            self.len = to_attr(length)
+            self.len = attr.to_attr(length)
         self.min_len = min_len
 
         # Initialize records during substitution
@@ -427,10 +429,10 @@ class Variadic(Pattern):
     def avail_attrs(self) -> List[str]:
         return ['length']
 
-    def __call__(self, index: AttrConvertible, t: Pattern):
+    def __call__(self, index: attr.AttrConvertible, t: Pattern):
         if t not in self.templates:
             raise ValueError('Pattern is not template of this variadic.')
-        return GetInstance(self, to_attr(index), t)
+        return GetInst(self, attr.to_attr(index), t)
 
     def __len__(self) -> int:
         return len(self.pat_inst)
@@ -482,8 +484,8 @@ class Variadic(Pattern):
                     p.succ.remove(inst)
 
 
-class GetInstance(Pattern):
-    def __init__(self, var: Variadic, index: Attr, t: Pattern):
+class GetInst(Pattern):
+    def __init__(self, var: Variadic, index: attr.Attr, t: Pattern):
         super().__init__()
         self.var = var
         self.idx = index
@@ -491,6 +493,9 @@ class GetInstance(Pattern):
 
     def has_attr(self, name: str) -> bool:
         return True
+
+
+ArgType = TypeVar('ArgType')
 
 
 class PatternVisitor(Generic[ArgType]):
@@ -508,13 +513,13 @@ class PatternVisitor(Generic[ArgType]):
             ret = self.visit_const(pat, arg)
         elif isinstance(pat, Call):
             ret = self.visit_call(pat, arg)
-        elif isinstance(pat, Tup):
+        elif isinstance(pat, Tuple):
             ret = self.visit_tuple(pat, arg)
         elif isinstance(pat, GetItem):
             ret = self.visit_getitem(pat, arg)
         elif isinstance(pat, Variadic):
             ret = self.visit_variadic(pat, arg)
-        elif isinstance(pat, GetInstance):
+        elif isinstance(pat, GetInst):
             ret = self.visit_get_instance(pat, arg)
         else:
             raise RuntimeError('Unknown node type.')
@@ -534,7 +539,7 @@ class PatternVisitor(Generic[ArgType]):
         for a in call.args:
             self.visit(a, arg)
 
-    def visit_tuple(self, tup: Tup, arg: ArgType) -> Any:
+    def visit_tuple(self, tup: Tuple, arg: ArgType) -> Any:
         for f in tup.fields:
             self.visit(f, arg)
 
@@ -544,7 +549,7 @@ class PatternVisitor(Generic[ArgType]):
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
         self.visit(var.pat, arg)
 
-    def visit_get_instance(self, get_inst: GetInstance, arg: ArgType) -> Any:
+    def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
         self.visit(get_inst.var, arg)
 
     # Visitor will not dispatch this method
@@ -587,9 +592,9 @@ class _PatInst(PatternVisitor[None]):
         args = self._visit_pred(call, arg)
         return Call(call.op, *args, **call.attrs)
 
-    def visit_tuple(self, tup: Tup, arg: None) -> Pattern:
+    def visit_tuple(self, tup: Tuple, arg: None) -> Pattern:
         fields = self._visit_pred(tup, arg)
-        return Tup(*fields)
+        return Tuple(*fields)
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Pattern:
         return GetItem(self.visit(getitem.tup, arg), getitem.idx)
@@ -597,8 +602,8 @@ class _PatInst(PatternVisitor[None]):
     def visit_variadic(self, var: Variadic, arg: None) -> Pattern:
         raise RuntimeError('Unreachable.')
 
-    def visit_get_instance(self, get_inst: GetInstance, arg: None) -> Pattern:
-        return GetInstance(get_inst.var, get_inst.idx, get_inst.t)
+    def visit_get_instance(self, get_inst: GetInst, arg: None) -> Pattern:
+        return GetInst(get_inst.var, get_inst.idx, get_inst.t)
 
     def _visit_pred(self, pat: Pattern, arg: None) -> List[Pattern]:
         return [self.visit(p, arg) for p in pat.pred]
@@ -634,7 +639,7 @@ class _Visualizer(PatternVisitor[None]):
             self.graph.edge(self.visit(a, arg), node_id)
         return node_id
 
-    def visit_tuple(self, tup: Tup, arg: None) -> Any:
+    def visit_tuple(self, tup: Tuple, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='(,)', **self.attrs)
         for f in tup.fields:
@@ -653,7 +658,7 @@ class _Visualizer(PatternVisitor[None]):
         self.graph.edge(self.visit(var.pat, arg), node_id)
         return node_id
 
-    def visit_get_instance(self, get_inst: GetInstance, arg: ArgType) -> Any:
+    def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='[i, x]', **self.attrs)
         self.graph.edge(self.visit(get_inst.var, arg), node_id)

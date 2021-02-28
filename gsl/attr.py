@@ -1,5 +1,7 @@
 from enum import Enum
-from typing import Union, Any, Dict, Tuple, Type, Callable, Generic, TypeVar, Optional
+from typing import Union, Dict, Type, Callable, Generic, TypeVar, Optional
+
+import typing as ty
 
 AttrPrimType = Union[bool, int, float, str]
 AttrValueType = Union[AttrPrimType, tuple, list]
@@ -12,50 +14,50 @@ class Attr:
     value_class = (bool, int, float, str)
 
     def __getitem__(self, index):
-        return GetItemAttr(self, to_attr(index))
+        return GetItem(self, to_attr(index))
 
     def __add__(self, other):
-        return BinaryAttr(BinaryOp.ADD, self, to_attr(other))
+        return Binary(BinaryOp.ADD, self, to_attr(other))
 
     def __radd__(self, other):
-        return BinaryAttr(BinaryOp.ADD, to_attr(other), self)
+        return Binary(BinaryOp.ADD, to_attr(other), self)
 
     def __sub__(self, other):
-        return BinaryAttr(BinaryOp.SUB, self, to_attr(other))
+        return Binary(BinaryOp.SUB, self, to_attr(other))
 
     def __rsub__(self, other):
-        return BinaryAttr(BinaryOp.SUB, to_attr(other), self)
+        return Binary(BinaryOp.SUB, to_attr(other), self)
 
     def __mul__(self, other):
-        return BinaryAttr(BinaryOp.MUL, self, to_attr(other))
+        return Binary(BinaryOp.MUL, self, to_attr(other))
 
     def __rmul__(self, other):
-        return BinaryAttr(BinaryOp.MUL, to_attr(other), self)
+        return Binary(BinaryOp.MUL, to_attr(other), self)
 
     def __floordiv__(self, other):
-        return BinaryAttr(BinaryOp.FLOOR_DIV, self, to_attr(other))
+        return Binary(BinaryOp.FLOOR_DIV, self, to_attr(other))
 
     def __rfloordiv__(self, other):
-        return BinaryAttr(BinaryOp.FLOOR_DIV, to_attr(other), self)
+        return Binary(BinaryOp.FLOOR_DIV, to_attr(other), self)
 
     def max(self, other):
-        return BinaryAttr(BinaryOp.MAX, self, to_attr(other))
+        return Binary(BinaryOp.MAX, self, to_attr(other))
 
     def min(self, other):
-        return BinaryAttr(BinaryOp.MIN, self, to_attr(other))
+        return Binary(BinaryOp.MIN, self, to_attr(other))
 
 
 AttrConvertible = Union[Attr, AttrValueType, None]
 
 
-class AnyAttr(Attr):
+class Any(Attr):
     """
     Matches any attribute value.
     """
     pass
 
 
-class ConstAttr(Attr):
+class Const(Attr):
     """
     A compile-time constant attribute value.
     """
@@ -75,7 +77,7 @@ class GetAttr(Attr):
         self.name = name
 
 
-class TupleAttr(Attr):
+class Tuple(Attr):
     """
     Create a list attribute expression.
     """
@@ -84,7 +86,7 @@ class TupleAttr(Attr):
         self.fields = [to_attr(e) for e in fields]
 
 
-class GetItemAttr(Attr):
+class GetItem(Attr):
     """
     Get item from a tuple attribute with given index.
     """
@@ -102,13 +104,13 @@ def to_attr(val: AttrConvertible) -> Attr:
     :return: Attribute expression created from given value.
     """
     if val is None:
-        return AnyAttr()
+        return Any()
     elif isinstance(val, Attr):
         return val
     elif isinstance(val, Attr.value_class):
-        return ConstAttr(val)
+        return Const(val)
     elif isinstance(val, (tuple, list)):
-        return TupleAttr(*val)
+        return Tuple(*val)
     else:
         raise TypeError(
             'Cannot convert value of type \'{}\' to attribute.'.format(val.__class__)
@@ -124,7 +126,7 @@ class BinaryOp(Enum):
     MIN = 'min'
 
 
-class BinaryAttr(Attr):
+class Binary(Attr):
     """
     Binary expression of attributes..
     """
@@ -134,7 +136,7 @@ class BinaryAttr(Attr):
         self.lhs = lhs
         self.rhs = rhs
 
-    eval_func: Dict[BinaryOp, Dict[Tuple[Type, Type], Callable[[Any, Any], Any]]] = {
+    eval_func: Dict[BinaryOp, Dict[ty.Tuple[Type, Type], Callable[[ty.Any, ty.Any], ty.Any]]] = {
         BinaryOp.ADD: {
             (int, int): int.__add__,
         },
@@ -174,7 +176,7 @@ class Env:
         self.symbol = symbol
         self.value = value
 
-    def __add__(self, pair: Tuple[Symbol, AttrValueType]):
+    def __add__(self, pair: ty.Tuple[Symbol, AttrValueType]):
         return Env(prev=self, symbol=pair[0], value=pair[1])
 
     def __getitem__(self, sym: Symbol) -> Optional[AttrValueType]:
@@ -190,7 +192,7 @@ class Env:
         return self[sym] is not None
 
 
-class VariadicAttr(Attr):
+class Variadic(Attr):
     """
     A tuple that can accept any number of fields, each with similar pattern.
     """
@@ -210,7 +212,7 @@ class VariadicAttr(Attr):
         self.len = to_attr(length)
 
 
-class SumAttr(Attr):
+class Sum(Attr):
     """
     Summation of attribute values in a given range
     """
@@ -232,54 +234,54 @@ ArgType = TypeVar('ArgType')
 
 
 class AttrVisitor(Generic[ArgType]):
-    def visit(self, attr: Attr, arg: ArgType) -> Any:
-        if isinstance(attr, AnyAttr):
+    def visit(self, attr: Attr, arg: ArgType) -> ty.Any:
+        if isinstance(attr, Any):
             return self.visit_any(attr, arg)
-        elif isinstance(attr, ConstAttr):
+        elif isinstance(attr, Const):
             return self.visit_const(attr, arg)
         elif isinstance(attr, GetAttr):
             return self.visit_getattr(attr, arg)
-        elif isinstance(attr, TupleAttr):
+        elif isinstance(attr, Tuple):
             return self.visit_tuple(attr, arg)
-        elif isinstance(attr, GetItemAttr):
+        elif isinstance(attr, GetItem):
             return self.visit_getitem(attr, arg)
-        elif isinstance(attr, BinaryAttr):
+        elif isinstance(attr, Binary):
             return self.visit_binary(attr, arg)
         elif isinstance(attr, Symbol):
             return self.visit_symbol(attr, arg)
-        elif isinstance(attr, VariadicAttr):
+        elif isinstance(attr, Variadic):
             return self.visit_variadic(attr, arg)
-        elif isinstance(attr, SumAttr):
+        elif isinstance(attr, Sum):
             return self.visit_sum(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
-    def visit_any(self, a: AnyAttr, arg: ArgType) -> Any:
+    def visit_any(self, a: Any, arg: ArgType) -> ty.Any:
         pass
 
-    def visit_const(self, const: ConstAttr, arg: ArgType) -> Any:
+    def visit_const(self, const: Const, arg: ArgType) -> ty.Any:
         pass
 
-    def visit_getattr(self, get_attr: GetAttr, arg: ArgType) -> Any:
+    def visit_getattr(self, get_attr: GetAttr, arg: ArgType) -> ty.Any:
         pass
 
-    def visit_tuple(self, tup_attr: TupleAttr, arg: ArgType) -> Any:
+    def visit_tuple(self, tup_attr: Tuple, arg: ArgType) -> ty.Any:
         for f in tup_attr.fields:
             self.visit(f, arg)
 
-    def visit_getitem(self, getitem: GetItemAttr, arg: ArgType) -> Any:
+    def visit_getitem(self, getitem: GetItem, arg: ArgType) -> ty.Any:
         self.visit(getitem.seq, arg)
         self.visit(getitem.index, arg)
 
-    def visit_binary(self, binary: BinaryAttr, arg: ArgType) -> Any:
+    def visit_binary(self, binary: Binary, arg: ArgType) -> ty.Any:
         self.visit(binary.lhs, arg)
         self.visit(binary.rhs, arg)
 
-    def visit_symbol(self, sym: Symbol, arg: ArgType) -> Any:
+    def visit_symbol(self, sym: Symbol, arg: ArgType) -> ty.Any:
         pass
 
-    def visit_variadic(self, var: VariadicAttr, arg: ArgType) -> Any:
+    def visit_variadic(self, var: Variadic, arg: ArgType) -> ty.Any:
         pass
 
-    def visit_sum(self, s: SumAttr, arg: ArgType) -> Any:
+    def visit_sum(self, s: Sum, arg: ArgType) -> ty.Any:
         pass

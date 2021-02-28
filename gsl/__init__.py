@@ -1,7 +1,4 @@
-from .attr import Symbol, VariadicAttr, SumAttr
+from . import attr, pat, op, spec
 from .fold import fold
-from .op import *
-from .pat import Wildcard, Var, OpWithFlag, Tup, Variadic, GetItem, same_attr
-from .spec import OpFlag
-from .subst import Substitution
+from .subst import Subst
 from .work import Workload

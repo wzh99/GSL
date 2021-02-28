@@ -3,8 +3,7 @@ import unittest
 from tvm import relay
 
 import rule
-from gsl import Workload, Substitution, Wildcard
-from gsl.pat import Call
+from gsl import pat, Workload, Subst
 
 
 class MatchTest(unittest.TestCase):
@@ -12,13 +11,13 @@ class MatchTest(unittest.TestCase):
         print('Match Pyramid')
 
         # Pattern
-        x = Wildcard()
-        l1_op1 = Call('exp', x)
-        l1_op2 = Call('abs', x)
-        l2_op1 = Call('sqrt', l1_op1)
-        l2_op2 = Call('add', l1_op1, l1_op2)
-        l2_op3 = Call('negative', l1_op2)
-        subst = Substitution([l2_op1, l2_op2, l2_op3], [x, x, x])
+        x = pat.Wildcard()
+        l1_op1 = pat.Call('exp', x)
+        l1_op2 = pat.Call('abs', x)
+        l2_op1 = pat.Call('sqrt', l1_op1)
+        l2_op2 = pat.Call('add', l1_op1, l1_op2)
+        l2_op3 = pat.Call('negative', l1_op2)
+        subst = Subst([l2_op1, l2_op2, l2_op3], [x, x, x])
 
         # Source graph
         x = relay.var('x', shape=(2, 2, 4, 4))

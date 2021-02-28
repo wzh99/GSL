@@ -1,6 +1,9 @@
-from tvm import ir
+import numpy as np
+from tvm import ir, relay
 
-from .eval import *
+from . import attr, pat, spec, util
+from .attr import Attr, Env
+from .eval import PatExprMap, AttrEvaluator, eval_get_inst
 
 
 class Matcher:
@@ -8,54 +11,54 @@ class Matcher:
         self.pat_to_expr = pat_to_expr
         self.expr_matched = set(pat_to_expr.values())
 
-    def match(self, pat: Pattern, expr: relay.Expr, env: Env) -> bool:
+    def match(self, p: pat.Pattern, expr: relay.Expr, env: Env) -> bool:
         # Already matched, use history record
-        if pat in self.pat_to_expr:
-            return self.pat_to_expr[pat] == expr
+        if p in self.pat_to_expr:
+            return self.pat_to_expr[p] == expr
 
         # Reject if the expression has been matched with another node
         if expr in self.expr_matched:
             return False
 
         # Try matching according to pattern node type
-        if isinstance(pat, Wildcard):
+        if isinstance(p, pat.Wildcard):
             res = True
-        elif isinstance(pat, Var):
-            res = self.match_var(pat, expr, env)
-        elif isinstance(pat, Const):
-            res = self.match_const(pat, expr, env)
-        elif isinstance(pat, Call):
-            res = self.match_call(pat, expr, env)
-        elif isinstance(pat, Tup):
-            res = self.match_tuple(pat, expr, env)
-        elif isinstance(pat, GetItem):
-            res = self.match_getitem(pat, expr, env)
-        elif isinstance(pat, Variadic):
-            res = self.match_variadic(pat, expr, env)
-        elif isinstance(pat, GetInstance):
-            res = self.match_get_inst(pat, expr, env)
+        elif isinstance(p, pat.Var):
+            res = self.match_var(p, expr, env)
+        elif isinstance(p, pat.Const):
+            res = self.match_const(p, expr, env)
+        elif isinstance(p, pat.Call):
+            res = self.match_call(p, expr, env)
+        elif isinstance(p, pat.Tuple):
+            res = self.match_tuple(p, expr, env)
+        elif isinstance(p, pat.GetItem):
+            res = self.match_getitem(p, expr, env)
+        elif isinstance(p, pat.Variadic):
+            res = self.match_variadic(p, expr, env)
+        elif isinstance(p, pat.GetInst):
+            res = self.match_get_inst(p, expr, env)
         else:
             res = False
 
         # Add to record if matched
         if res:
-            self.pat_to_expr[pat] = expr
+            self.pat_to_expr[p] = expr
             self.expr_matched.add(expr)
         return res
 
-    def match_var(self, var: Var, expr: relay.Expr, env: Env) -> bool:
+    def match_var(self, var: pat.Var, expr: relay.Expr, env: Env) -> bool:
         # Match variable node
         if not isinstance(expr, relay.Var):
             return False
 
         # Match attributes
-        for name, attr in var.attrs.items():
-            if not self.match_attr(attr, util.get_tensor_attr(expr, name), env):
+        for n, a in var.attrs.items():
+            if not self.match_attr(a, util.get_tensor_attr(expr, n), env):
                 return False
 
         return True
 
-    def match_const(self, const: Const, expr: relay.Expr, env: Env) -> bool:
+    def match_const(self, const: pat.Const, expr: relay.Expr, env: Env) -> bool:
         # Match constant node
         if not isinstance(expr, relay.Constant):
             return False
@@ -65,14 +68,14 @@ class Matcher:
         if isinstance(const.value, np.ndarray):
             if not np.array_equal(const.value, expr_val):
                 return False
-        if isinstance(const.value, Attr):
+        if isinstance(const.value, attr.Attr):
             pat_val = AttrEvaluator(self.pat_to_expr).visit(const.value, env)
             if not np.array_equal(pat_val, expr_val):
                 return False
 
         return True
 
-    def match_call(self, call: Call, expr: relay.Expr, env: Env) -> bool:
+    def match_call(self, call: pat.Call, expr: relay.Expr, env: Env) -> bool:
         # Match call node
         if not isinstance(expr, relay.Call):
             return False
@@ -91,20 +94,20 @@ class Matcher:
                 return False
 
         # Match attributes
-        for name, attr in call.attrs.items():
-            if (expr.attrs is None) or (name not in expr.attrs.keys()):
+        for n, a in call.attrs.items():
+            if (expr.attrs is None) or (n not in expr.attrs.keys()):
                 raise RuntimeError(
-                    'Attribute \'{}\' not found in op \'{}\'.'.format(name, expr.op.name)
+                    'Attribute \'{}\' not found in op \'{}\'.'.format(n, expr.op.name)
                 )
-            if not self.match_attr(attr, expr.attrs[name], env):
+            if not self.match_attr(a, expr.attrs[n], env):
                 return False
 
         return True
 
-    def match_op(self, pat_op: Op, expr_op: ir.Op) -> bool:
-        if isinstance(pat_op, ConcreteOp):
+    def match_op(self, pat_op: pat.Op, expr_op: ir.Op) -> bool:
+        if isinstance(pat_op, pat.ConcreteOp):
             return pat_op.name == expr_op.name
-        elif isinstance(pat_op, OpWithFlag):
+        elif isinstance(pat_op, pat.OpWithFlag):
             matched = spec.match_flag(expr_op.name, pat_op.flag)
             if matched:
                 self.pat_to_expr[pat_op] = expr_op
@@ -112,7 +115,7 @@ class Matcher:
         else:
             raise RuntimeError('Unreachable.')
 
-    def match_tuple(self, tup: Tup, expr: relay.Expr, env: Env) -> bool:
+    def match_tuple(self, tup: pat.Tuple, expr: relay.Expr, env: Env) -> bool:
         # Match tuple node
         if not isinstance(expr, relay.Tuple):
             return False
@@ -128,14 +131,14 @@ class Matcher:
 
         return True
 
-    def match_getitem(self, getitem: GetItem, expr: relay.Expr, env: Env) -> bool:
+    def match_getitem(self, getitem: pat.GetItem, expr: relay.Expr, env: Env) -> bool:
         if not isinstance(expr, relay.TupleGetItem):
             return False
         if not self.match(getitem.tup, expr.tuple_value, env):
             return False
         return self.match_attr(getitem.idx, expr.index, env)
 
-    def match_variadic(self, var: Variadic, expr: relay.Expr, env: Env) -> bool:
+    def match_variadic(self, var: pat.Variadic, expr: relay.Expr, env: Env) -> bool:
         # Matches tuple node
         if not isinstance(expr, relay.Tuple):
             return False
@@ -158,16 +161,16 @@ class Matcher:
 
         return True
 
-    def match_get_inst(self, get_inst: GetInstance, expr: relay.Expr, env: Env) -> bool:
-        pat = eval_get_inst(get_inst, self.pat_to_expr, env)
-        return self.match(pat, expr, env)
+    def match_get_inst(self, get_inst: pat.GetInst, expr: relay.Expr, env: Env) -> bool:
+        p = eval_get_inst(get_inst, self.pat_to_expr, env)
+        return self.match(p, expr, env)
 
     def match_attr(self, pat_attr: Attr, expr_attr, env: Env) -> bool:
         # Get expression attribute value
         expr_val = util.cvt_ir_value(expr_attr)
 
         # Match attribute according to attribute type
-        if isinstance(pat_attr, VariadicAttr):
+        if isinstance(pat_attr, attr.Variadic):
             # Variadic can only match sequential collection
             if not isinstance(expr_val, (tuple, list)):
                 return False
