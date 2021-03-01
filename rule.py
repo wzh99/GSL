@@ -137,7 +137,7 @@ def lower_batch_norm():
     moving_mean = pat.Var()
     moving_var = pat.Var()
 
-    # Source pattern: batch_norm(x, gamma, beta, mean, pat.Var)
+    # Source pattern: batch_norm(x, gamma, beta, mean, var)
     bn = op.BatchNorm(x, gamma, beta, moving_mean, moving_var, axis=1, scale=True, center=True)
     y1 = bn[0]
 

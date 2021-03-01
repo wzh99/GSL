@@ -117,18 +117,17 @@ x = pat.Wildcard()
 w1 = pat.Var()
 w2 = pat.Var(shape=w1.shape)
 
-# Source pattern: conv2d(x, w1) + conv2d(x, w2)
-conv1 = op.Conv2D(x, w1)
-conv2 = op.Conv2D(x, w2, strides=conv1.strides, padding=conv1.padding,
-                  dilation=conv1.dilation, groups=conv1.groups)
-y1 = conv1 + conv2
+# Source pattern
+conv1 = op.Conv2D(x, w1, groups=1)
+conv2 = op.Conv2D(x, w2, **pat.same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
-# Target pattern: conv2d(x, w1 + w2)
-y2 = op.Conv2D(x, w1 + w2, strides=conv1.strides, padding=conv1.padding,
-               dilation=conv1.dilation, groups=conv1.groups)
+# Target pattern
+w = op.Concatenate((w1, w2), axis=0)
+conv = op.Conv2D(x, w, **pat.same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
+split = op.Split(conv, indices_or_sections=2, axis=1)
 
 # Build substitution
-subst = Subst([conv1, conv2], [split[0], split[1]])
+return Subst([conv1, conv2], [split[0], split[1]])
 ```
 
 GSL can also support variadic pattern, including variadic tuple fields and variadic output nodes. The following substitution removes a split and a following concatenate operation along the same axis. 
