@@ -164,7 +164,7 @@ src = pat.Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
 
 # Target pattern
 i = attr.Symbol()
-w_inst = src(i, w)
+w_inst = src(w, i)
 concat = op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
                         axis=0)
 conv = op.Conv2D(x, concat,
@@ -173,7 +173,7 @@ conv = op.Conv2D(x, concat,
 i = attr.Symbol()
 j = attr.Symbol()
 split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
-    attr.Sum(src(j, w).shape[0], j, i + 1), index=i, length=src.length - 1))
+    attr.Sum(src(w, j).shape[0], j, i + 1), index=i, length=src.length - 1))
 i = attr.Symbol()
 item = split[i]
 tgt = pat.Variadic(item, templates=[item], index=i)

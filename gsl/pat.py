@@ -429,10 +429,10 @@ class Variadic(Pattern):
     def avail_attrs(self) -> List[str]:
         return ['length']
 
-    def __call__(self, index: attr.AttrConvertible, t: Pattern):
-        if t not in self.templates:
+    def __call__(self, tpl: Pattern, index: attr.AttrConvertible):
+        if tpl not in self.templates:
             raise ValueError('Pattern is not template of this variadic.')
-        return GetInst(self, attr.to_attr(index), t)
+        return GetInst(self, tpl, attr.to_attr(index))
 
     def __len__(self) -> int:
         return len(self.pat_inst)
@@ -485,11 +485,11 @@ class Variadic(Pattern):
 
 
 class GetInst(Pattern):
-    def __init__(self, var: Variadic, index: attr.Attr, t: Pattern):
+    def __init__(self, var: Variadic, tpl: Pattern, index: attr.Attr):
         super().__init__()
         self.var = var
+        self.tpl = tpl
         self.idx = index
-        self.t = t
 
     def has_attr(self, name: str) -> bool:
         return True
@@ -603,7 +603,7 @@ class _PatInst(PatternVisitor[None]):
         raise RuntimeError('Unreachable.')
 
     def visit_get_instance(self, get_inst: GetInst, arg: None) -> Pattern:
-        return GetInst(get_inst.var, get_inst.idx, get_inst.t)
+        return GetInst(get_inst.var, get_inst.tpl, get_inst.idx)
 
     def _visit_pred(self, pat: Pattern, arg: None) -> List[Pattern]:
         return [self.visit(p, arg) for p in pat.pred]

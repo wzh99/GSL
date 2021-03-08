@@ -233,7 +233,7 @@ def dispatch_tuple():
 
     # Target pattern
     i = attr.Symbol()
-    item = tup(src(i, get_item).index, x)
+    item = tup(x, src(get_item, i).index)
     tgt = pat.Variadic(item, templates=[item], index=i)
 
     return Subst(src, tgt)
@@ -271,7 +271,7 @@ def parallel_conv_variadic():
 
     # Target pattern
     i = attr.Symbol()
-    w_inst = src(i, w)
+    w_inst = src(w, i)
     concat = op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
                             axis=0)
     conv = op.Conv2D(x, concat,
@@ -280,7 +280,7 @@ def parallel_conv_variadic():
     i = attr.Symbol()
     j = attr.Symbol()
     split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
-        attr.Sum(src(j, w).shape[0], j, i + 1), index=i, length=src.length - 1))
+        attr.Sum(src(w, j).shape[0], j, i + 1), index=i, length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
     tgt = pat.Variadic(item, templates=[item], index=i)
@@ -338,7 +338,7 @@ def parallel_group_conv_variadic():
 
     # Target pattern
     i = attr.Symbol()
-    w_inst = src(i, w)
+    w_inst = src(w, i)
     w_concat = op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
                               axis=0)
     w_expand = op.ExpandDims(w_concat, axis=1, num_newaxis=2)
@@ -396,14 +396,14 @@ def parallel_dense_variadic():
 
     # Target pattern
     i = attr.Symbol()
-    w_inst = src(i, w)
+    w_inst = src(w, i)
     dense = op.Dense(x, op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i,
                                                     length=src.length),
                                        axis=0))
     i = attr.Symbol()
     j = attr.Symbol()
     split = op.Split(dense, axis=-1, indices_or_sections=attr.Variadic(
-        attr.Sum(src(j, w).shape[0], j, i + 1), index=i, length=src.length - 1))
+        attr.Sum(src(w, j).shape[0], j, i + 1), index=i, length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
     tgt = pat.Variadic(item, templates=[item], index=i)

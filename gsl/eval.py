@@ -101,4 +101,4 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
 def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, env: Env) \
         -> pat.Pattern:
     idx = AttrEvaluator(pat_to_expr).visit(get_inst.idx, env)
-    return get_inst.var.get_inst(idx, get_inst.t)
+    return get_inst.var.get_inst(idx, get_inst.tpl)
