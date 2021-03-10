@@ -140,13 +140,14 @@ class Var(Pattern):
 
     def __init__(self, shape: Union[tuple, attr.Attr, None] = None,
                  dtype: Union[str, attr.Attr, None] = None,
-                 dim: Union[int, attr.Attr, None] = None):
+                 ndim: Union[int, attr.Attr, None] = None):
         super().__init__()
 
         # Check attributes for variable
-        raw_attrs = filter_attrs({
-            'shape': shape, 'dtype': dtype, 'dim': dim,
-        })
+        raw_attrs = filter_attrs(dict(zip(
+            self.tensor_attrs,
+            [shape, dtype, ndim]
+        )))
         for n, a in raw_attrs.items():
             if n in self.tensor_attrs:
                 self.attrs[n] = attr.to_attr(a)
