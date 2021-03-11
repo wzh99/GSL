@@ -358,7 +358,7 @@ class _RelayBuilder(PatternVisitor[Env]):
     def visit_op(self, op: pat.Op, env: Env) -> str:
         if isinstance(op, pat.ConcreteOp):
             return op.name
-        elif isinstance(op, pat.OpWithFlag):
+        elif isinstance(op, pat.OpWithTrait):
             return self.pat_to_expr[op].name
         else:
             raise RuntimeError('Unreachable.')

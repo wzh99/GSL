@@ -7,39 +7,39 @@ from tvm.ir import Op
 from tvm.relay import *
 
 
-class OpFlag(IntFlag):
+class OpTrait(IntFlag):
     ELEMENT_WISE = auto()
     BROADCASTING = auto()
 
 
-flag = 'flag'
+trait = 'trait'
 
 # Specify certain properties of ops.
 op_spec: Dict[FunctionType, Dict[str, Any]] = {
     # Algebraic operators
     negative: {
-        flag: OpFlag.ELEMENT_WISE,
+        trait: OpTrait.ELEMENT_WISE,
     },
     add: {
-        flag: OpFlag.ELEMENT_WISE | OpFlag.BROADCASTING,
+        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
     },
     subtract: {
-        flag: OpFlag.ELEMENT_WISE | OpFlag.BROADCASTING,
+        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
     },
     multiply: {
-        flag: OpFlag.ELEMENT_WISE | OpFlag.BROADCASTING,
+        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
     },
     divide: {
-        flag: OpFlag.ELEMENT_WISE | OpFlag.BROADCASTING,
+        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
     },
     abs: {
-        flag: OpFlag.ELEMENT_WISE,
+        trait: OpTrait.ELEMENT_WISE,
     },
     exp: {
-        flag: OpFlag.ELEMENT_WISE,
+        trait: OpTrait.ELEMENT_WISE,
     },
     sqrt: {
-        flag: OpFlag.ELEMENT_WISE,
+        trait: OpTrait.ELEMENT_WISE,
     },
 
     # Tensor generation
@@ -48,7 +48,7 @@ op_spec: Dict[FunctionType, Dict[str, Any]] = {
 
     # Neural network operators
     nn.relu: {
-        flag: OpFlag.ELEMENT_WISE
+        trait: OpTrait.ELEMENT_WISE
     },
 }
 
@@ -67,17 +67,17 @@ def get_op_attr_names(name: str) -> List[str]:
     return list(signature(func).parameters.keys())[num_inputs:]
 
 
-def match_flag(name: str, required_flag: OpFlag) -> bool:
+def match_trait(name: str, required: OpTrait) -> bool:
     func = get_func(name)
     if func not in op_spec:
         return False
-    return required_flag in op_spec[func][flag]
+    return required in op_spec[func][trait]
 
 
 def _init_spec():
     for d in op_spec.values():
-        if flag not in d:
-            d[flag] = OpFlag(0)
+        if trait not in d:
+            d[trait] = OpTrait(0)
 
 
 _init_spec()

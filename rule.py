@@ -196,7 +196,7 @@ def merge_element_wise():
     x = pat.Wildcard()
 
     # Source pattern
-    ew_op = pat.OpWithFlag(spec.OpFlag.ELEMENT_WISE)
+    ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
     ew1 = pat.Call(ew_op, x)
     ew2 = pat.Call(ew_op, x)
 
@@ -212,7 +212,7 @@ def merge_element_wise_variadic():
     x = pat.Wildcard()
 
     # Source pattern
-    ew_op = pat.OpWithFlag(spec.OpFlag.ELEMENT_WISE)
+    ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
     call = pat.Call(ew_op, x)
     src = pat.Variadic(call, templates=[call])
 

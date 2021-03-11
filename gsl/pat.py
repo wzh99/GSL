@@ -233,13 +233,13 @@ class ConcreteOp(Op):
         return self.name
 
 
-class OpWithFlag(Op):
-    def __init__(self, flag: spec.OpFlag):
+class OpWithTrait(Op):
+    def __init__(self, trait: spec.OpTrait):
         super().__init__()
-        self.flag = flag
+        self.trait = trait
 
     def __str__(self):
-        return self.flag.name
+        return self.trait.name
 
 
 class Call(Pattern):
@@ -247,15 +247,15 @@ class Call(Pattern):
     Represents an operator call.
     """
 
-    def __init__(self, op: Union[Op, str, spec.OpFlag], *args: PatternConvertible, **raw_attr):
+    def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternConvertible, **raw_attr):
         super().__init__()
         self.args = [to_pat(a) for a in args]
 
         # Convert valid alternatives of Op to node
         if isinstance(op, str):
             op = ConcreteOp(op)
-        elif isinstance(op, spec.OpFlag):
-            op = OpWithFlag(op)
+        elif isinstance(op, spec.OpTrait):
+            op = OpWithTrait(op)
         self.op = op
 
         # Check number of inputs
