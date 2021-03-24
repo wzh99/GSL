@@ -217,17 +217,17 @@ class Sum(Attr):
     Summation of attribute values in a given range
     """
 
-    def __init__(self, attr: Attr, index: Symbol, length: AttrConvertible):
+    def __init__(self, elem: AttrConvertible, index: Symbol, length: AttrConvertible):
         """
         Constructor.
 
-        :param attr: Pattern of summed elements.
+        :param elem: Pattern of summed elements.
         :param index:  Symbol mapping to iteration of summation.
         :param length: Attribute expression specifying the length of summation.
         """
-        self.attr = attr
+        self.elem = to_attr(elem)
         self.index = index
-        self.len = None if length is None else to_attr(length)
+        self.len = to_attr(length)
 
 
 ArgType = TypeVar('ArgType')

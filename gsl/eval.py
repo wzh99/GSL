@@ -94,7 +94,7 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         length = self.visit(s.len, env)
         result = 0
         for i in range(length):
-            result += self.visit(s.attr, env + (s.index, i))
+            result += self.visit(s.elem, env + (s.index, i))
         return result
 
 

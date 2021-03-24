@@ -127,7 +127,7 @@ conv = op.Conv2D(x, w, **pat.same_attr(conv1, ['strides', 'padding', 'dilation',
 split = op.Split(conv, indices_or_sections=2, axis=1)
 
 # Build substitution
-return Subst([conv1, conv2], [split[0], split[1]])
+subst = Subst([conv1, conv2], [split[0], split[1]])
 ```
 
 GSL can also support variadic pattern, including variadic tuple fields and variadic output nodes. The following substitution removes a split and a following concatenate operation along the same axis. 
