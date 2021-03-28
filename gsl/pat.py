@@ -130,7 +130,7 @@ class Wildcard(Pattern):
     pass
 
 
-class Var(Pattern):
+class Variable(Pattern):
     """
     A variable node matches input tensor of the model. Target graph cannot contain variable nodes
     not defined in source graph.
@@ -508,7 +508,7 @@ class PatternVisitor(Generic[ArgType]):
             return self.visited[pat]
         if isinstance(pat, Wildcard):
             ret = self.visit_wildcard(pat, arg)
-        elif isinstance(pat, Var):
+        elif isinstance(pat, Variable):
             ret = self.visit_var(pat, arg)
         elif isinstance(pat, Const):
             ret = self.visit_const(pat, arg)
@@ -530,7 +530,7 @@ class PatternVisitor(Generic[ArgType]):
     def visit_wildcard(self, wildcard: Wildcard, arg: ArgType) -> Any:
         pass
 
-    def visit_var(self, var: Var, arg: ArgType) -> Any:
+    def visit_var(self, var: Variable, arg: ArgType) -> Any:
         pass
 
     def visit_const(self, const: Const, arg: ArgType) -> Any:
@@ -583,8 +583,8 @@ class _PatInst(PatternVisitor[None]):
     def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Pattern:
         return Wildcard()
 
-    def visit_var(self, var: Var, arg: None) -> Pattern:
-        return Var(**var.attrs)
+    def visit_var(self, var: Variable, arg: None) -> Pattern:
+        return Variable(**var.attrs)
 
     def visit_const(self, const: Const, arg: None) -> Pattern:
         return Const(const.value)
@@ -623,7 +623,7 @@ class _Visualizer(PatternVisitor[None]):
         self.graph.node(node_id, label='*', **self.attrs)
         return node_id
 
-    def visit_var(self, var: Var, arg: None) -> Any:
+    def visit_var(self, var: Variable, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='Var', **self.attrs)
         return node_id

@@ -51,8 +51,8 @@ def bias_add_add():
     # Input
     x1 = pat.Wildcard()
     x2 = pat.Wildcard()
-    b1 = pat.Var()
-    b2 = pat.Var()
+    b1 = pat.Variable()
+    b2 = pat.Variable()
 
     # Source pattern: (x1 + b1) + (x2 + b2)
     add1 = op.BiasAdd(x1, b1, axis=1)
@@ -69,8 +69,8 @@ def bias_add_add():
 def diamond_conv_add():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w2 = pat.Var(shape=w1.shape)
+    w1 = pat.Variable()
+    w2 = pat.Variable(shape=w1.shape)
 
     # Source pattern: conv2d(x, w1) + conv2d(x, w2)
     conv1 = op.Conv2D(x, w1)
@@ -90,8 +90,8 @@ def two_conv_add():
     # Input
     x1 = pat.Wildcard()
     x2 = pat.Wildcard()
-    w1 = pat.Var()
-    w2 = pat.Var(shape=w1.shape)
+    w1 = pat.Variable()
+    w2 = pat.Variable(shape=w1.shape)
 
     # Source pattern: conv2d(x1, w1) + conv2d(x2, w2)
     conv1 = op.Conv2D(x1, w1)
@@ -111,7 +111,7 @@ def two_conv_add():
 def conv_shortcut_add():
     # Input
     x = pat.Wildcard()
-    w = pat.Var()
+    w = pat.Variable()
 
     # Source pattern: conv2d(x, w) + x
     conv = op.Conv2D(x, w)
@@ -132,10 +132,10 @@ def conv_shortcut_add():
 def lower_batch_norm():
     # Input
     x = pat.Wildcard()
-    gamma = pat.Var()
-    beta = pat.Var()
-    moving_mean = pat.Var()
-    moving_var = pat.Var()
+    gamma = pat.Variable()
+    beta = pat.Variable()
+    moving_mean = pat.Variable()
+    moving_var = pat.Variable()
 
     # Source pattern: batch_norm(x, gamma, beta, mean, var)
     bn = op.BatchNorm(x, gamma, beta, moving_mean, moving_var, axis=1, scale=True, center=True)
@@ -153,8 +153,8 @@ def lower_batch_norm():
 def lower_layer_norm():
     # Input
     x = pat.Wildcard()
-    gamma = pat.Var()
-    beta = pat.Var()
+    gamma = pat.Variable()
+    beta = pat.Variable()
 
     # Source pattern layer_norm(x, gamma, beta)
     y1 = op.LayerNorm(x, gamma, beta, axis=-1, scale=True, center=True)
@@ -175,8 +175,8 @@ def lower_layer_norm():
 def conv_mul():
     # Input
     x = pat.Wildcard()
-    w = pat.Var()
-    k = pat.Var(shape=(None, 1, 1))
+    w = pat.Variable()
+    k = pat.Variable(shape=(None, 1, 1))
 
     # Source pattern: conv2d(x, w) * k
     conv = op.Conv2D(x, w)
@@ -242,8 +242,8 @@ def dispatch_tuple():
 def parallel_conv():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w2 = pat.Var(shape=w1.shape)
+    w1 = pat.Variable()
+    w2 = pat.Variable(shape=w1.shape)
 
     # Source pattern
     conv1 = op.Conv2D(x, w1, groups=1)
@@ -261,8 +261,8 @@ def parallel_conv():
 def parallel_conv_variadic():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w = pat.Var(shape=(None, None, w1.shape[2], w1.shape[3]))
+    w1 = pat.Variable()
+    w = pat.Variable(shape=(None, None, w1.shape[2], w1.shape[3]))
 
     # Source pattern
     conv1 = op.Conv2D(x, w1, groups=1)
@@ -292,8 +292,8 @@ def parallel_conv_variadic():
 def parallel_conv_expand_kernels():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w2 = pat.Var(shape=(w1.shape[0], None, None, None))
+    w1 = pat.Variable()
+    w2 = pat.Variable(shape=(w1.shape[0], None, None, None))
 
     # Source pattern
     def same_padding(h: attr.Attr, w: attr.Attr):
@@ -328,8 +328,8 @@ def parallel_conv_expand_kernels():
 def parallel_group_conv_variadic():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w = pat.Var(shape=(w1.shape[0], None, w1.shape[2], w1.shape[3]))
+    w1 = pat.Variable()
+    w = pat.Variable(shape=(w1.shape[0], None, w1.shape[2], w1.shape[3]))
 
     # Source pattern
     conv1 = op.Conv2D(x, w1)
@@ -369,8 +369,8 @@ def parallel_group_conv_variadic():
 def parallel_dense():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w2 = pat.Var()
+    w1 = pat.Variable()
+    w2 = pat.Variable()
 
     # Source pattern
     dense1 = op.Dense(x, w1)
@@ -387,8 +387,8 @@ def parallel_dense():
 def parallel_dense_variadic():
     # Input
     x = pat.Wildcard()
-    w1 = pat.Var()
-    w = pat.Var(shape=(None, w1.shape[1]))
+    w1 = pat.Variable()
+    w = pat.Variable(shape=(None, w1.shape[1]))
 
     # Source pattern
     dense = op.Dense(x, w)

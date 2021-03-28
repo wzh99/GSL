@@ -123,7 +123,7 @@ class ExprRewriter:
 
         return None
 
-    reusable_pat = (pat.Wildcard, pat.Var)
+    reusable_pat = (pat.Wildcard, pat.Variable)
 
     def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:

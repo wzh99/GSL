@@ -23,7 +23,7 @@ class Matcher:
         # Try matching according to pattern node type
         if isinstance(p, pat.Wildcard):
             res = True
-        elif isinstance(p, pat.Var):
+        elif isinstance(p, pat.Variable):
             res = self.match_var(p, expr, env)
         elif isinstance(p, pat.Const):
             res = self.match_const(p, expr, env)
@@ -46,7 +46,7 @@ class Matcher:
             self.expr_matched.add(expr)
         return res
 
-    def match_var(self, var: pat.Var, expr: relay.Expr, env: Env) -> bool:
+    def match_var(self, var: pat.Variable, expr: relay.Expr, env: Env) -> bool:
         # Match variable node
         if not isinstance(expr, relay.Var):
             return False

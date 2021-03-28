@@ -35,8 +35,8 @@ from gsl import *
 
 # Input
 x = pat.Wildcard()
-w1 = pat.Var()
-w2 = pat.Var(shape=w1.shape)
+w1 = pat.Variable()
+w2 = pat.Variable(shape=w1.shape)
 
 # Source pattern: conv2d(x, w1) + conv2d(x, w2)
 conv1 = op.Conv2D(x, w1)
@@ -114,8 +114,8 @@ GSL supports source and target patterns with multiple output nodes. The followin
 ```python
 # Input
 x = pat.Wildcard()
-w1 = pat.Var()
-w2 = pat.Var(shape=w1.shape)
+w1 = pat.Variable()
+w2 = pat.Variable(shape=w1.shape)
 
 # Source pattern
 conv1 = op.Conv2D(x, w1, groups=1)
@@ -154,8 +154,8 @@ The following is a variadic version of fusing parallel convolutions. This substi
 ```python
 # Input
 x = pat.Wildcard()
-w1 = pat.Var()
-w = pat.Var(shape=(None, None, w1.shape[2], w1.shape[3]))
+w1 = pat.Variable()
+w = pat.Variable(shape=(None, None, w1.shape[2], w1.shape[3]))
 
 # Source pattern
 conv1 = op.Conv2D(x, w1, groups=1)

@@ -38,7 +38,7 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         expr = self.pat_to_expr[p]
 
         # Get attribute from expression
-        if isinstance(p, pat.Var) and name in pat.Var.tensor_attrs:
+        if isinstance(p, pat.Variable) and name in pat.Variable.tensor_attrs:
             return util.get_tensor_attr(expr, name)
         elif isinstance(p, pat.Call) and expr.attrs is not None and name in expr.attrs.keys():
             return expr.attrs[name]
