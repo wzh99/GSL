@@ -168,10 +168,10 @@ class RuleTest(unittest.TestCase):
         w = relay.var('w', shape=(4, 2, 3, 3))
         gamma = relay.var('gamma', shape=(4,))
         beta = relay.var('beta', shape=(4,))
-        moving_mean = relay.var('moving_mean', shape=(4,))
-        moving_var = relay.var('moving_var', shape=(4,))
+        mean = relay.var('mean', shape=(4,))
+        var = relay.var('var', shape=(4,))
         conv = relay.nn.conv2d(x, w, padding=(1, 1, 1, 1), groups=2)
-        y = relay.nn.batch_norm(conv, gamma, beta, moving_mean, moving_var)[0]
+        y = relay.nn.batch_norm(conv, gamma, beta, mean, var)[0]
         wl = Workload.from_expr(y, {'x'}, name='conv_bn')
         print(wl.mod)
 

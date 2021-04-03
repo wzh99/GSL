@@ -56,7 +56,7 @@ class Workload:
         :return: Workload object created from this expression.
         """
         # Create module
-        free_vars: List[relay.Var] = relay.analysis.free_vars(expr)
+        free_vars = relay.analysis.free_vars(expr)
         main = relay.Function(free_vars, expr)
         mod = ir.IRModule(functions={'main': main})
         wl = Workload(mod, {}, dtype=dtype, name=name)
@@ -181,7 +181,9 @@ class _ExprVisualizer(relay.ExprVisitor):
 
     def visit_constant(self, const: relay.Constant):
         expr_id = self._next_id()
-        self.graph.node(expr_id, label='const', **self.attrs)
+        value = const.data.asnumpy()
+        label = str(value) if value.ndim == 0 else 'const'
+        self.graph.node(expr_id, label=label, **self.attrs)
         return expr_id
 
     def visit_call(self, call: relay.Call):
