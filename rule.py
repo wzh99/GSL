@@ -51,8 +51,8 @@ def bias_add_add():
     # Input
     x1 = pat.Wildcard()
     x2 = pat.Wildcard()
-    b1 = pat.Variable()
-    b2 = pat.Variable()
+    b1 = pat.Wildcard()
+    b2 = pat.Wildcard()
 
     # Source pattern: (x1 + b1) + (x2 + b2)
     add1 = op.BiasAdd(x1, b1, axis=1)
@@ -175,15 +175,15 @@ def lower_layer_norm():
 def conv_mul():
     # Input
     x = pat.Wildcard()
-    w = pat.Variable()
-    k = pat.Variable(shape=(None, 1, 1))
+    k = pat.Wildcard()
+    w = pat.Wildcard()
 
     # Source pattern: conv2d(x, w) * k
     conv = op.Conv2D(x, w)
-    y1 = conv * k
+    y1 = conv * op.ExpandDims(k, axis=1, num_newaxis=2)
 
     # Target pattern: conv2d(x, w * k)
-    fused_w = w * op.ExpandDims(k, axis=1, num_newaxis=1)
+    fused_w = w * op.ExpandDims(k, axis=1, num_newaxis=3)
     y2 = op.Conv2D(x, fused_w,
                    **pat.same_attr(conv, ['strides', 'padding', 'dilation', 'groups']))
 

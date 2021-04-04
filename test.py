@@ -3,7 +3,7 @@ import unittest
 from tvm import relay
 
 import rule
-from gsl import pat, Workload, Subst
+from gsl import pat, Workload, Subst, fold
 
 
 class MatchTest(unittest.TestCase):
@@ -180,7 +180,8 @@ class RuleTest(unittest.TestCase):
             rule.lower_batch_norm(),
             rule.conv_mul(),
         ]:
-            wl = subst(wl, fast_mode=True)
+            wl = subst(wl, fast_mode=True, fold_params=False)
+        wl = fold(wl)
         print(wl.mod)
         self.assertTrue(True)
 
@@ -385,47 +386,6 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
         self.assertTrue(True)
 
-    def test_nasnet_block(self):
-        print('Sequential Subst. on a Simplified NASNet Block')
-
-        # Source graph
-        x = relay.var('x', shape=(2, 32, 32, 32))
-        relu1 = relay.nn.relu(x)
-        dep_w1 = relay.var('dep_w1', shape=(32, 1, 3, 3))
-        dep_conv1 = relay.nn.conv2d(relu1, dep_w1, padding=(1, 1, 1, 1), groups=32)
-        pt_w1 = relay.var('pt_w1', shape=(32, 32, 1, 1))
-        pt_conv1 = relay.nn.conv2d(dep_conv1, pt_w1)
-        g1 = relay.var('g1', shape=(32,))
-        b1 = relay.var('b1', shape=(32,))
-        m1 = relay.var('m1', shape=(32,))
-        v1 = relay.var('v1', shape=(32,))
-        bn1 = relay.nn.batch_norm(pt_conv1, g1, b1, m1, v1)[0]
-        relu2 = relay.nn.relu(x)
-        w2 = relay.var('dep_w2', shape=(32, 1, 5, 5))
-        dep_conv2 = relay.nn.conv2d(relu2, w2, padding=(2, 2, 2, 2), groups=32)
-        pt_w2 = relay.var('pt_w2', shape=(32, 32, 1, 1))
-        pt_conv2 = relay.nn.conv2d(dep_conv2, pt_w2)
-        g2 = relay.var('g2', shape=(32,))
-        b2 = relay.var('b2', shape=(32,))
-        m2 = relay.var('m2', shape=(32,))
-        v2 = relay.var('v2', shape=(32,))
-        bn2 = relay.nn.batch_norm(pt_conv2, g2, b2, m2, v2)[0]
-        y = bn1 + bn2
-        wl = Workload.from_expr(y, {'x'})
-        print(wl.mod)
-
-        # Apply substitutions
-        for subst in [
-            rule.lower_batch_norm(),
-            rule.conv_mul(),
-            rule.bias_add_add(),
-            rule.two_conv_add(),
-            rule.merge_element_wise(),
-        ]:
-            wl = subst(wl, fast_mode=True)
-        print(wl.mod)
-        self.assertTrue(True)
-
 
 class ModelTest(unittest.TestCase):
     def test_resnet(self):
@@ -465,7 +425,8 @@ class ModelTest(unittest.TestCase):
             rule.bias_add_add(),
             rule.two_conv_add(),
         ]:
-            wl = subst(wl, fast_mode=True)
+            wl = subst(wl, fast_mode=True, fold_params=False)
+        wl = fold(wl)
         wl.visualize()
         # wl.build(target='metal')
         # y2 = wl(input_1=x_in)
