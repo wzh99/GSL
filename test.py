@@ -425,8 +425,7 @@ class ModelTest(unittest.TestCase):
             rule.bias_add_add(),
             rule.two_conv_add(),
         ]:
-            wl = subst(wl, fast_mode=True, fold_params=False)
-        wl = fold(wl)
+            wl = subst(wl, fast_mode=True)
         wl.visualize()
         # wl.build(target='metal')
         # y2 = wl(input_1=x_in)

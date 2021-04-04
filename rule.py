@@ -175,15 +175,15 @@ def lower_layer_norm():
 def conv_mul():
     # Input
     x = pat.Wildcard()
-    k = pat.Wildcard()
     w = pat.Wildcard()
+    k = pat.Variable(shape=(None, 1, 1))
 
     # Source pattern: conv2d(x, w) * k
     conv = op.Conv2D(x, w)
-    y1 = conv * op.ExpandDims(k, axis=1, num_newaxis=2)
+    y1 = conv * k
 
     # Target pattern: conv2d(x, w * k)
-    fused_w = w * op.ExpandDims(k, axis=1, num_newaxis=3)
+    fused_w = w * op.ExpandDims(k, axis=1, num_newaxis=1)
     y2 = op.Conv2D(x, fused_w,
                    **pat.same_attr(conv, ['strides', 'padding', 'dilation', 'groups']))
 
@@ -214,7 +214,7 @@ def merge_element_wise_variadic():
     # Source pattern
     ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
     call = pat.Call(ew_op, x)
-    src = pat.Variadic(call, templates=[call])
+    src = pat.Variadic(call, templates=[call], min_len=2)
 
     # Target pattern
     ew = pat.Call(ew_op, x)
