@@ -108,6 +108,8 @@ class Matcher:
         if isinstance(pat_op, pat.ConcreteOp):
             return pat_op.name == expr_op.name
         elif isinstance(pat_op, pat.OpWithTrait):
+            if pat_op in self.pat_to_expr:
+                return self.pat_to_expr[pat_op].name == expr_op.name
             matched = spec.match_trait(expr_op.name, pat_op.trait)
             if matched:
                 self.pat_to_expr[pat_op] = expr_op
