@@ -243,10 +243,10 @@ class _TgtPatChecker(PatternVisitor[Env]):
         # Check if all non-default attributes are provided for concrete op
         if isinstance(call.op, pat.ConcreteOp):
             op_name = call.op.name
-            func = spec.get_func(op_name)
+            api = spec.get_api(op_name)
             num_input = spec.get_num_inputs(op_name)
             required = set()
-            for name, param in list(signature(func).parameters.items())[num_input:]:
+            for name, param in list(signature(api).parameters.items())[num_input:]:
                 if param.default == Parameter.empty:
                     required.add(name)
             required.difference_update(call.attrs.keys())

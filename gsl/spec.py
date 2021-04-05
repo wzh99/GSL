@@ -15,45 +15,27 @@ class OpTrait(IntFlag):
 trait = 'trait'
 
 # Specify certain properties of ops.
-op_spec: Dict[FunctionType, Dict[str, Any]] = {
+op_trait: Dict[FunctionType, OpTrait] = {
     # Algebraic operators
-    negative: {
-        trait: OpTrait.ELEMENT_WISE,
-    },
-    add: {
-        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
-    },
-    subtract: {
-        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
-    },
-    multiply: {
-        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
-    },
-    divide: {
-        trait: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
-    },
-    abs: {
-        trait: OpTrait.ELEMENT_WISE,
-    },
-    exp: {
-        trait: OpTrait.ELEMENT_WISE,
-    },
-    sqrt: {
-        trait: OpTrait.ELEMENT_WISE,
-    },
+    negative: OpTrait.ELEMENT_WISE,
+    add: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
+    subtract: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
+    multiply: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
+    divide: OpTrait.ELEMENT_WISE | OpTrait.BROADCASTING,
+    abs: OpTrait.ELEMENT_WISE,
+    exp: OpTrait.ELEMENT_WISE,
+    sqrt: OpTrait.ELEMENT_WISE,
 
     # Tensor generation
 
     # Tensor transformations
 
     # Neural network operators
-    nn.relu: {
-        trait: OpTrait.ELEMENT_WISE
-    },
+    nn.relu: OpTrait.ELEMENT_WISE
 }
 
 
-def get_func(name: str) -> FunctionType:
+def get_api(name: str) -> FunctionType:
     return eval(name)
 
 
@@ -62,22 +44,13 @@ def get_num_inputs(name: str) -> int:
 
 
 def get_op_attr_names(name: str) -> List[str]:
-    func = get_func(name)
+    func = get_api(name)
     num_inputs = get_num_inputs(name)
     return list(signature(func).parameters.keys())[num_inputs:]
 
 
 def match_trait(name: str, required: OpTrait) -> bool:
-    func = get_func(name)
-    if func not in op_spec:
+    func = get_api(name)
+    if func not in op_trait:
         return False
-    return required in op_spec[func][trait]
-
-
-def _init_spec():
-    for d in op_spec.values():
-        if trait not in d:
-            d[trait] = OpTrait(0)
-
-
-_init_spec()
+    return required in op_trait[func]

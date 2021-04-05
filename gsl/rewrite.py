@@ -346,9 +346,9 @@ class _RelayBuilder(PatternVisitor[Env]):
         attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr, env))
                       for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op, env)
-        func = spec.get_func(op_name)
+        api = spec.get_api(op_name)
         try:
-            call_expr = func(*args, **attrs)
+            call_expr = api(*args, **attrs)
         except TypeError:
             raise RuntimeError(
                 'Cannot create call expression for op \'{}\' with {} operand(s) and attribute '
