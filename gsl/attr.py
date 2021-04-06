@@ -13,38 +13,38 @@ class Attr:
     """
     value_class = (bool, int, float, str)
 
-    def __getitem__(self, index):
-        return GetItem(self, to_attr(index))
+    def __getitem__(self, index: 'AttrConvertible'):
+        return GetItem(self, index)
 
-    def __add__(self, other):
-        return Binary(BinaryOp.ADD, self, to_attr(other))
+    def __add__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.ADD, self, other)
 
-    def __radd__(self, other):
-        return Binary(BinaryOp.ADD, to_attr(other), self)
+    def __radd__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.ADD, other, self)
 
-    def __sub__(self, other):
-        return Binary(BinaryOp.SUB, self, to_attr(other))
+    def __sub__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.SUB, self, other)
 
-    def __rsub__(self, other):
-        return Binary(BinaryOp.SUB, to_attr(other), self)
+    def __rsub__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.SUB, other, self)
 
-    def __mul__(self, other):
-        return Binary(BinaryOp.MUL, self, to_attr(other))
+    def __mul__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MUL, self, other)
 
-    def __rmul__(self, other):
-        return Binary(BinaryOp.MUL, to_attr(other), self)
+    def __rmul__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MUL, other, self)
 
-    def __floordiv__(self, other):
-        return Binary(BinaryOp.FLOOR_DIV, self, to_attr(other))
+    def __floordiv__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.FLOOR_DIV, self, other)
 
-    def __rfloordiv__(self, other):
-        return Binary(BinaryOp.FLOOR_DIV, to_attr(other), self)
+    def __rfloordiv__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.FLOOR_DIV, other, self)
 
-    def max(self, other):
-        return Binary(BinaryOp.MAX, self, to_attr(other))
+    def max(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MAX, self, other)
 
-    def min(self, other):
-        return Binary(BinaryOp.MIN, self, to_attr(other))
+    def min(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MIN, self, other)
 
 
 AttrConvertible = Union[Attr, AttrValueType, None]
@@ -91,9 +91,9 @@ class GetItem(Attr):
     Get item from a tuple attribute with given index.
     """
 
-    def __init__(self, seq: Attr, index: Attr):
+    def __init__(self, seq: Attr, index: AttrConvertible):
         self.seq = seq
-        self.index = index
+        self.index = to_attr(index)
 
 
 def to_attr(val: AttrConvertible) -> Attr:
@@ -131,10 +131,10 @@ class Binary(Attr):
     Binary expression of attributes..
     """
 
-    def __init__(self, op_name: BinaryOp, lhs: Attr, rhs: Attr):
+    def __init__(self, op_name: BinaryOp, lhs: AttrConvertible, rhs: AttrConvertible):
         self.op = op_name
-        self.lhs = lhs
-        self.rhs = rhs
+        self.lhs = to_attr(lhs)
+        self.rhs = to_attr(rhs)
 
     eval_func: Dict[BinaryOp, Dict[ty.Tuple[Type, Type], Callable[[ty.Any, ty.Any], ty.Any]]] = {
         BinaryOp.ADD: {
