@@ -1,7 +1,6 @@
+import typing as ty
 from enum import Enum
 from typing import Union, Dict, Type, Callable, Generic, TypeVar, Optional
-
-import typing as ty
 
 AttrPrimType = Union[bool, int, float, str]
 AttrValueType = Union[AttrPrimType, tuple, list]
@@ -15,6 +14,12 @@ class Attr:
 
     def __getitem__(self, index: 'AttrConvertible'):
         return GetItem(self, index)
+
+    def __neg__(self):
+        return Unary(UnaryOp.NEG, self)
+
+    def __invert__(self):
+        return Unary(UnaryOp.NOT, self)
 
     def __add__(self, other: 'AttrConvertible'):
         return Binary(BinaryOp.ADD, self, other)
@@ -63,6 +68,18 @@ class Attr:
 
     def __ge__(self, other: 'AttrConvertible'):
         return Binary(BinaryOp.GE, self, other)
+
+    def __and__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.AND, self, other)
+
+    def __rand__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.AND, other, self)
+
+    def __or__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.OR, self, other)
+
+    def __ror__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.OR, other, self)
 
     def max(self, other: 'AttrConvertible'):
         return Binary(BinaryOp.MAX, self, other)
@@ -141,6 +158,30 @@ def to_attr(val: AttrConvertible) -> Attr:
         )
 
 
+class UnaryOp(Enum):
+    NEG = '-'
+    NOT = '~'
+
+
+class Unary(Attr):
+    """
+    Unary expression of attribute.
+    """
+
+    def __init__(self, uop: UnaryOp, attr: AttrConvertible):
+        self.op = uop
+        self.attr = to_attr(attr)
+
+    eval_funcs: Dict[UnaryOp, Dict[Type, Callable[[ty.Any], ty.Any]]] = {
+        UnaryOp.NEG: {
+            int: int.__neg__,
+        },
+        UnaryOp.NOT: {
+            bool: lambda b: not b,
+        },
+    }
+
+
 class BinaryOp(Enum):
     ADD = '+'
     SUB = '-'
@@ -164,8 +205,8 @@ class Binary(Attr):
     Binary expression of attributes..
     """
 
-    def __init__(self, op_name: BinaryOp, lhs: AttrConvertible, rhs: AttrConvertible):
-        self.op = op_name
+    def __init__(self, bop: BinaryOp, lhs: AttrConvertible, rhs: AttrConvertible):
+        self.op = bop
         self.lhs = to_attr(lhs)
         self.rhs = to_attr(rhs)
 
@@ -349,6 +390,9 @@ class AttrVisitor(Generic[ArgType]):
     def visit_getitem(self, getitem: GetItem, arg: ArgType) -> ty.Any:
         self.visit(getitem.seq, arg)
         self.visit(getitem.index, arg)
+
+    def visit_unary(self, unary: Unary, arg: ArgType) -> ty.Any:
+        self.visit(unary.attr, arg)
 
     def visit_binary(self, binary: Binary, arg: ArgType) -> ty.Any:
         self.visit(binary.lhs, arg)

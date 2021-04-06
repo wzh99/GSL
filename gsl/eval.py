@@ -53,6 +53,19 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
     def visit_getitem(self, getitem: attr.GetItem, env: Env):
         return self.visit(getitem.seq, env)[self.visit(getitem.index, env)]
 
+    def visit_unary(self, unary: attr.Unary, env: Env):
+        v = self.visit(unary.attr, env)
+        v_ty = v.__class__
+        uop = unary.op
+        op_func = attr.Unary.eval_funcs[uop]
+        if v_ty not in op_func:
+            raise RuntimeError(
+                'Operator \'{}\' not defined for type {}'.format(
+                    uop.value, v_ty
+                )
+            )
+        return op_func[v_ty](v)
+
     def visit_binary(self, binary: attr.Binary, env: Env):
         lv, rv = self.visit(binary.lhs, env), self.visit(binary.rhs, env)
         ty_tup = (lv.__class__, rv.__class__)
