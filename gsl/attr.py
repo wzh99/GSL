@@ -40,6 +40,30 @@ class Attr:
     def __rfloordiv__(self, other: 'AttrConvertible'):
         return Binary(BinaryOp.FLOOR_DIV, other, self)
 
+    def __mod__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MOD, self, other)
+
+    def __rmod__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.MOD, other, self)
+
+    def __eq__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.EQ, self, other)
+
+    def __ne__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.NE, self, other)
+
+    def __lt__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.LT, self, other)
+
+    def __le__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.LE, self, other)
+
+    def __gt__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.GT, self, other)
+
+    def __ge__(self, other: 'AttrConvertible'):
+        return Binary(BinaryOp.GE, self, other)
+
     def max(self, other: 'AttrConvertible'):
         return Binary(BinaryOp.MAX, self, other)
 
@@ -122,8 +146,17 @@ class BinaryOp(Enum):
     SUB = '-'
     MUL = '*'
     FLOOR_DIV = '//'
+    MOD = '%'
     MAX = 'max'
     MIN = 'min'
+    EQ = '='
+    NE = '!='
+    LT = '<'
+    LE = '<='
+    GT = '>'
+    GE = '>='
+    AND = '&'
+    OR = '|'
 
 
 class Binary(Attr):
@@ -149,13 +182,55 @@ class Binary(Attr):
         BinaryOp.FLOOR_DIV: {
             (int, int): int.__floordiv__,
         },
+        BinaryOp.MOD: {
+            (int, int): int.__mod__,
+        },
         BinaryOp.MAX: {
             (int, int): max,
         },
         BinaryOp.MIN: {
             (int, int): min,
         },
+        BinaryOp.EQ: {
+            (int, int): int.__eq__,
+            (bool, bool): bool.__eq__,
+            (str, str): str.__eq__,
+        },
+        BinaryOp.NE: {
+            (int, int): int.__ne__,
+            (bool, bool): bool.__ne__,
+            (str, str): str.__ne__,
+        },
+        BinaryOp.LT: {
+            (int, int): int.__lt__,
+        },
+        BinaryOp.LE: {
+            (int, int): int.__le__,
+        },
+        BinaryOp.GT: {
+            (int, int): int.__gt__,
+        },
+        BinaryOp.GE: {
+            (int, int): int.__ge__,
+        },
+        BinaryOp.AND: {
+            (bool, bool): bool.__and__,
+        },
+        BinaryOp.OR: {
+            (bool, bool): bool.__or__,
+        },
     }
+
+
+class Cond(Attr):
+    """
+    Condition (if-else) attribute expression.
+    """
+
+    def __init__(self, pred: Attr, then_br: AttrConvertible, else_br: AttrConvertible):
+        self.pred = pred
+        self.then_br = to_attr(then_br)
+        self.else_br = to_attr(else_br)
 
 
 class Symbol(Attr):
@@ -247,6 +322,8 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_getitem(attr, arg)
         elif isinstance(attr, Binary):
             return self.visit_binary(attr, arg)
+        elif isinstance(attr, Cond):
+            return self.visit_cond(attr, arg)
         elif isinstance(attr, Symbol):
             return self.visit_symbol(attr, arg)
         elif isinstance(attr, Variadic):
@@ -276,6 +353,11 @@ class AttrVisitor(Generic[ArgType]):
     def visit_binary(self, binary: Binary, arg: ArgType) -> ty.Any:
         self.visit(binary.lhs, arg)
         self.visit(binary.rhs, arg)
+
+    def visit_cond(self, cond: Cond, arg: ArgType) -> ty.Any:
+        self.visit(cond.pred, arg)
+        self.visit(cond.then_br, arg)
+        self.visit(cond.else_br, arg)
 
     def visit_symbol(self, sym: Symbol, arg: ArgType) -> ty.Any:
         pass

@@ -66,6 +66,14 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
             )
         return op_func[ty_tup](lv, rv)
 
+    def visit_cond(self, cond: attr.Cond, env: Env):
+        pv = self.visit(cond.pred, env)
+        if not isinstance(pv, bool):
+            raise RuntimeError(
+                'Predicate of condition cannot be evaluated to a boolean value.'
+            )
+        return self.visit(cond.then_br, env) if pv else self.visit(cond.else_br, env)
+
     def visit_symbol(self, sym: attr.Symbol, env: Env):
         val = env[sym]
         if val is None:
