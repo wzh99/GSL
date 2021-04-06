@@ -171,7 +171,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
                 self.visit(t, new_env)
         for t in var.templates:
             self.visit(t, new_env)
-        self.visit(var.pat, new_env)
+        self.visit(var.field, new_env)
 
         # Check length
         if var.len is not None:
@@ -273,7 +273,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         new_env = env
         if var.index is not None:
             new_env = env + (var.index, True)
-        self.visit(var.pat, new_env)
+        self.visit(var.field, new_env)
 
         # Check template and first list
         for t in var.templates:

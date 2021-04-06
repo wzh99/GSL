@@ -24,6 +24,10 @@ class Pattern:
     def pred(self) -> List['Pattern']:
         return []
 
+    def _update_pred_succ(self):
+        for p in self.pred:
+            p.succ.append(self)
+
     @property
     def is_output(self) -> bool:
         return len(self.succ) == 0
@@ -250,6 +254,7 @@ class Call(Pattern):
     def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternConvertible, **raw_attr):
         super().__init__()
         self.args = [to_pat(a) for a in args]
+        self._update_pred_succ()
 
         # Convert valid alternatives of Op to node
         if isinstance(op, str):
@@ -265,10 +270,6 @@ class Call(Pattern):
                 raise ValueError(
                     'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
                 )
-
-        # Set self as output of arguments
-        for a in self.args:
-            a.succ.append(self)
 
         # Convert raw attribute values to attribute nodes if necessary
         self.attrs.update(
@@ -313,8 +314,7 @@ class Tuple(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
-        for f in self.fields:
-            f.succ.append(self)
+        self._update_pred_succ()
 
     @property
     def pred(self):
@@ -326,7 +326,7 @@ class GetItem(Pattern):
         super().__init__()
         self.tup = tup
         self.idx = attr.to_attr(index)
-        tup.succ.append(self)
+        self._update_pred_succ()
 
     @property
     def pred(self):
@@ -343,7 +343,7 @@ class Variadic(Pattern):
     arbitrary number of output nodes, each with the same pattern.
     """
 
-    def __init__(self, pat: Pattern,
+    def __init__(self, field: Pattern,
                  templates: Optional[List[Pattern]] = None,
                  first: Optional[List[Optional[Pattern]]] = None,
                  index: Optional[attr.Symbol] = None,
@@ -352,7 +352,7 @@ class Variadic(Pattern):
         """
         Constructor.
 
-        :param pat: The common pattern of tuple fields.
+        :param field: The common pattern of tuple fields.
         :param templates: Sub-patterns serve as templates, that is, for each of the expression
             matched, a unique pattern will be created. Note that if at least one sub-pattern is a
             template, the whole pattern must be a template as well.
@@ -370,13 +370,12 @@ class Variadic(Pattern):
         """
         super().__init__()
 
-        # Add successor to pattern
-        self.pat = pat
-        pat.succ.append(self)
+        # Initialize field
+        self.field = field
 
         # Check templates
         if templates is not None and len(templates) > 0:  # at least one pattern is a template
-            if pat not in templates:
+            if field not in templates:
                 raise ValueError(
                     'Template pattern must be duplicated if any of its sub-pattern should be '
                     'duplicated.'
@@ -401,7 +400,7 @@ class Variadic(Pattern):
                 raise TypeError(
                     'Variadic cannot be a template pattern.'
                 )
-            if not pat.check_any(lambda p: p is t):
+            if not field.check_any(lambda p: p is t):
                 raise ValueError(
                     'Template is not sub-pattern of field pattern.'
                 )
@@ -419,12 +418,12 @@ class Variadic(Pattern):
         self.min_len = min_len
 
         # Initialize records during substitution
-        self.pat_inst: List[Pattern] = []
+        self.field_inst: List[Pattern] = []
         self.tpl_inst: List[Dict[Pattern, Pattern]] = []
 
     @property
     def pred(self):
-        return self.pat_inst
+        return self.field_inst
 
     @property
     def avail_attrs(self) -> List[str]:
@@ -436,7 +435,7 @@ class Variadic(Pattern):
         return GetInst(self, tpl, attr.to_attr(index))
 
     def __len__(self) -> int:
-        return len(self.pat_inst)
+        return len(self.field_inst)
 
     def get_inst(self, idx: int, t: Pattern):
         if idx >= len(self):
@@ -452,7 +451,7 @@ class Variadic(Pattern):
 
     def clear(self):
         super().clear()
-        while len(self.pat_inst) > 0:
+        while len(self.field_inst) > 0:
             self.rollback()
 
     def has_first(self, t: Pattern) -> bool:
@@ -461,7 +460,7 @@ class Variadic(Pattern):
     def instantiate(self) -> Pattern:
         # Instantiate templates
         visitor = _PatInst(self)
-        inst = visitor.visit(self.pat, None)
+        field = visitor.visit(self.field, None)
         inst_map = visitor.map
 
         # Maps templates to first instances
@@ -471,13 +470,13 @@ class Variadic(Pattern):
                     inst_map[tpl] = self.tpl_to_fst[tpl]
 
         # Add record
-        self.pat_inst.append(inst)
+        self.field_inst.append(field)
         self.tpl_inst.append(inst_map)
 
-        return inst
+        return field
 
     def rollback(self):
-        self.pat_inst.pop()
+        self.field_inst.pop()
         inst_map = self.tpl_inst.pop()
         for tpl, inst in inst_map.items():
             if inst not in self.first:
@@ -548,7 +547,7 @@ class PatternVisitor(Generic[ArgType]):
         self.visit(getitem.tup, arg)
 
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
-        self.visit(var.pat, arg)
+        self.visit(var.field, arg)
 
     def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
         self.visit(get_inst.var, arg)
@@ -563,20 +562,20 @@ class _PatInst(PatternVisitor[None]):
         super().__init__()
         self.var = var
         self.index = len(var)
-        self.map: Dict[Pattern, Pattern] = {}
+        self.map: Dict[Pattern, Pattern] = {}  # template-instance map
 
     def visit(self, pat: Pattern, arg: None) -> Pattern:
         if pat in self.var.templates:  # current pattern is a template
             if self.index == 0 and self.var.has_first(pat):  # this template has first instance
-                return self.var.tpl_to_fst[pat]
+                inst: Pattern = self.var.tpl_to_fst[pat]
             else:
                 # Instantiate template and copy attributes to instance
-                inst: Pattern = super().visit(pat, arg)
+                inst = super().visit(pat, arg)
                 inst.is_template = False
                 inst.src_idx = pat.src_idx
                 inst.in_tgt = pat.in_tgt
                 self.map[pat] = inst  # map template to created instance
-                return inst
+            return inst
         else:
             return pat  # not a template, keep it
 
@@ -656,7 +655,7 @@ class _Visualizer(PatternVisitor[None]):
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='(...)', **self.attrs)
-        self.graph.edge(self.visit(var.pat, arg), node_id)
+        self.graph.edge(self.visit(var.field, arg), node_id)
         return node_id
 
     def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:

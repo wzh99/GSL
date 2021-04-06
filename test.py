@@ -441,7 +441,7 @@ class ModelTest(unittest.TestCase):
         # Apply substitution
         for subst in [
             rule.parallel_dense_variadic(),
-            rule.lower_layer_norm(),
+            # rule.lower_layer_norm(),
         ]:
             wl = subst(wl)
         wl.visualize()

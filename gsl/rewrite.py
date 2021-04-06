@@ -237,7 +237,7 @@ class ExprRewriter:
                 p, e = stack.pop()
 
                 # Push successors to stack if field pattern is not reached
-                if p not in src_var.pat_inst:
+                if p not in src_var.field_inst:
                     add_succ(p, e)
                     continue
 
@@ -327,6 +327,10 @@ class _RelayBuilder(PatternVisitor[Env]):
     def visit(self, p: Pattern, env: Env) -> relay.Expr:
         if p in self.pat_to_expr:
             return self.pat_to_expr[p]
+        elif p.in_src:
+            raise RuntimeError(
+                'Cannot find matched expression of pattern in source graph.'
+            )
         else:
             expr = super().visit(p, env)
             self.pat_to_expr[p] = expr
