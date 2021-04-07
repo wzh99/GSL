@@ -375,6 +375,10 @@ class _RelayBuilder(PatternVisitor[Env]):
         idx = AttrEvaluator(self.pat_to_expr).visit(getitem.idx, env)
         return tup[idx]
 
+    def visit_cond(self, cond: pat.Cond, env: Env) -> relay.Expr:
+        pred = AttrEvaluator(self.pat_to_expr).visit(cond.predicate, env)
+        return self.visit(cond.then_pat, env) if pred else self.visit(cond.else_pat, env)
+
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
         length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)

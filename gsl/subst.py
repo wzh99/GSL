@@ -156,6 +156,11 @@ class _SrcPatChecker(PatternVisitor[Env]):
         super().visit_getitem(getitem, env)
         self.attr_checker.visit(getitem.idx, env)
 
+    def visit_cond(self, cond: pat.Cond, env: Env) -> Any:
+        raise RuntimeError(
+            'Cannot use condition pattern in source pattern graph.'
+        )
+
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Add index to environment
         new_env = env

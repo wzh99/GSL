@@ -532,6 +532,8 @@ class PatternVisitor(Generic[ArgType]):
             ret = self.visit_tuple(pat, arg)
         elif isinstance(pat, GetItem):
             ret = self.visit_getitem(pat, arg)
+        elif isinstance(pat, Cond):
+            ret = self.visit_cond(pat, arg)
         elif isinstance(pat, Variadic):
             ret = self.visit_variadic(pat, arg)
         elif isinstance(pat, GetInst):
