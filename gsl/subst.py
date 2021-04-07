@@ -139,6 +139,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
             )
         super().visit(p, env)
         p.src_idx = self.idx
+        p.update_pred_succ()
 
     def visit_const(self, const: pat.Const, env: Env) -> Any:
         if isinstance(const.value, attr.Attr):
@@ -162,15 +163,15 @@ class _SrcPatChecker(PatternVisitor[Env]):
             new_env = env + (var.index, True)
 
         # Check first and template list
-        for t in var.first:
-            if t is not None:
-                if t.check_any(lambda p: p.is_template):
+        for tpl in var.templates:
+            if var.has_first(tpl):
+                fst = var.tpl_to_fst[tpl]
+                if fst.check_any(lambda p: p.is_template):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )
-                self.visit(t, new_env)
-        for t in var.templates:
-            self.visit(t, new_env)
+                self.visit(fst, new_env)
+            self.visit(tpl, new_env)
         self.visit(var.field, new_env)
 
         # Check length
@@ -217,6 +218,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
             )
         super().visit(p, env)
         p.in_tgt = True
+        p.update_pred_succ()
 
     def visit_wildcard(self, wildcard: pat.Wildcard, env: Env) -> Any:
         if wildcard not in self.src_nodes:
@@ -276,10 +278,15 @@ class _TgtPatChecker(PatternVisitor[Env]):
         self.visit(var.field, new_env)
 
         # Check template and first list
-        for t in var.templates:
-            self.visit(t, new_env)
-            if var.has_first(t):
-                self.visit(var.tpl_to_fst[t], new_env)
+        for tpl in var.templates:
+            if var.has_first(tpl):
+                fst = var.tpl_to_fst[tpl]
+                if fst.check_any(lambda p: p.is_template):
+                    raise ValueError(
+                        'Pattern as first instance cannot connect to template patterns.'
+                    )
+                self.visit(fst, new_env)
+            self.visit(tpl, new_env)
 
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)

@@ -24,7 +24,7 @@ class Pattern:
     def pred(self) -> List['Pattern']:
         return []
 
-    def _update_pred_succ(self):
+    def update_pred_succ(self):
         for p in self.pred:
             p.succ.append(self)
 
@@ -254,7 +254,6 @@ class Call(Pattern):
     def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternConvertible, **raw_attr):
         super().__init__()
         self.args = [to_pat(a) for a in args]
-        self._update_pred_succ()
 
         # Convert valid alternatives of Op to node
         if isinstance(op, str):
@@ -314,7 +313,6 @@ class Tuple(Pattern):
     def __init__(self, *raw_fields: PatternConvertible):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
-        self._update_pred_succ()
 
     @property
     def pred(self):
@@ -326,7 +324,6 @@ class GetItem(Pattern):
         super().__init__()
         self.tup = tup
         self.idx = attr.to_attr(index)
-        self._update_pred_succ()
 
     @property
     def pred(self):
@@ -335,6 +332,24 @@ class GetItem(Pattern):
     @property
     def avail_attrs(self) -> List[str]:
         return ['index']
+
+
+class Cond(Pattern):
+    """
+    Conditionally use one of the patterns.
+    This pattern can only be used in rewrite process but not in match.
+    """
+
+    def __init__(self, predicate: attr.Attr, then_pat: PatternConvertible,
+                 else_pat: PatternConvertible):
+        super().__init__()
+        self.predicate = predicate
+        self.then_pat = to_pat(then_pat)
+        self.else_pat = to_pat(else_pat)
+
+    @property
+    def pred(self) -> List[Pattern]:
+        return [self.then_pat, self.else_pat]
 
 
 class Variadic(Pattern):
@@ -546,6 +561,10 @@ class PatternVisitor(Generic[ArgType]):
     def visit_getitem(self, getitem: GetItem, arg: ArgType) -> Any:
         self.visit(getitem.tup, arg)
 
+    def visit_cond(self, cond: Cond, arg: ArgType) -> Any:
+        self.visit(cond.then_pat, arg)
+        self.visit(cond.else_pat, arg)
+
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
         self.visit(var.field, arg)
 
@@ -575,6 +594,7 @@ class _PatInst(PatternVisitor[None]):
                 inst.src_idx = pat.src_idx
                 inst.in_tgt = pat.in_tgt
                 self.map[pat] = inst  # map template to created instance
+                inst.update_pred_succ()
             return inst
         else:
             return pat  # not a template, keep it
@@ -598,6 +618,10 @@ class _PatInst(PatternVisitor[None]):
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Pattern:
         return GetItem(self.visit(getitem.tup, arg), getitem.idx)
+
+    def visit_cond(self, cond: Cond, arg: None) -> Pattern:
+        return Cond(cond.predicate, self.visit(cond.then_pat, arg),
+                    self.visit(cond.else_pat, arg))
 
     def visit_variadic(self, var: Variadic, arg: None) -> Pattern:
         raise RuntimeError('Unreachable.')
@@ -650,6 +674,13 @@ class _Visualizer(PatternVisitor[None]):
         node_id = self._next_id()
         self.graph.node(node_id, label='.{}'.format(getitem.idx), **self.attrs)
         self.graph.edge(self.visit(getitem.tup, arg), node_id)
+        return node_id
+
+    def visit_cond(self, cond: Cond, arg: ArgType) -> Any:
+        node_id = self._next_id()
+        self.graph.node(node_id, label='Cond', **self.attrs)
+        self.graph.edge(self.visit(cond.then_pat, arg), node_id)
+        self.graph.edge(self.visit(cond.else_pat, arg), node_id)
         return node_id
 
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
