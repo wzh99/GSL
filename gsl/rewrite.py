@@ -5,7 +5,7 @@ from tvm import relay
 
 from . import pat, spec, util
 from .attr import Attr, Env
-from .eval import PatExprMap, AttrEvaluator, eval_get_inst
+from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
 from .match import Matcher
 from .pat import Pattern, PatternVisitor
 
@@ -19,11 +19,18 @@ class ExprRewriter:
         self.tgt_outs = tgt_outs
         self.is_var = is_var
         self.fast_mode = fast_mode
+        self.ty_map: ExprTypeMap = {}
         self.history = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
+        # Build expression type map
+        mapper = _TypeMapper()
+        mapper.visit(expr)
+        self.ty_map = mapper.ty_map
+
+        # Use fast mode if possible
         if self.fast_mode and len(self.src_outs) == 1 and not self.is_var:
-            return _SinglePatRewriter(self).visit(expr)
+            return _SinglePatRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
 
         # Greedily match all subgraphs
         while True:
@@ -62,14 +69,16 @@ class ExprRewriter:
                 # noinspection PyTypeChecker
                 tgt_expr = self.build_variadic(self.src_outs[0], self.tgt_outs[0], pat_to_expr)
             else:
-                tgt_expr = [_RelayBuilder(pat_to_expr).visit(tgt, Env())
+                tgt_expr = [_RelayBuilder(pat_to_expr, self.ty_map).visit(tgt, Env())
                             for tgt in self.tgt_outs]
             self.history.update(tgt_expr)
             expr_map = dict(zip(src_matched, tgt_expr))
-            self.clear_pat()
 
             # Rewrite expression
-            expr = _RewriteMutator(expr_map).visit(expr)
+            expr = _RewriteMutator(expr_map, self.ty_map).visit(expr)
+
+            # Clear instantiated patterns
+            self.clear_pat()
 
         self.clear_pat()
         return expr
@@ -113,7 +122,7 @@ class ExprRewriter:
                     continue
 
                 # Use first pattern to roughly locate the subgraph
-                matcher = Matcher(pat_to_expr.copy())
+                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
                 res = matcher.match(pattern, cur_expr, Env())
                 if not res:
                     self.history.add(cur_expr)
@@ -177,7 +186,7 @@ class ExprRewriter:
                     continue
 
                 # Match pattern with expression
-                matcher = Matcher(pat_to_expr.copy())
+                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
                 res = matcher.match(src_pat, e, Env())
                 if not res:
                     continue
@@ -244,7 +253,7 @@ class ExprRewriter:
                 # Try matching field with expression
                 env = Env() if src_var.index is None else \
                     Env(symbol=src_var.index, value=len(out_matched))
-                matcher = Matcher(pat_to_expr.copy())
+                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
                 result = matcher.match(src_var.instantiate(), e, env)
                 if not result:
                     src_var.rollback()
@@ -260,15 +269,14 @@ class ExprRewriter:
             if not found:
                 return out_matched
 
-    @classmethod
-    def build_variadic(cls, src_var: pat.Variadic, tgt_var: pat.Variadic,
+    def build_variadic(self, src_var: pat.Variadic, tgt_var: pat.Variadic,
                        pat_to_expr: PatExprMap) -> List[relay.Expr]:
         length = len(src_var)
         tgt_outs: List[relay.Expr] = []
         for i in range(length):
             env = Env() if tgt_var.index is None else Env(symbol=tgt_var.index, value=i)
             inst = tgt_var.instantiate()
-            tgt_outs.append(_RelayBuilder(pat_to_expr).visit(inst, env))
+            tgt_outs.append(_RelayBuilder(pat_to_expr, self.ty_map).visit(inst, env))
         return tgt_outs
 
     @staticmethod
@@ -291,6 +299,19 @@ class ExprRewriter:
                 return False
 
         return True
+
+
+class _TypeMapper(relay.ExprVisitor):
+    def __init__(self):
+        super().__init__()
+        self.ty_map: ExprTypeMap = {}
+
+    def visit(self, expr: relay.Expr):
+        if isinstance(expr, (relay.Constant, relay.Var, relay.Call, relay.Tuple,
+                             relay.TupleGetItem)):
+            super().visit(expr)
+            ty = expr.checked_type
+            self.ty_map[expr] = ty
 
 
 class _SuccListBuilder(relay.ExprVisitor):
@@ -320,9 +341,10 @@ class _SuccListBuilder(relay.ExprVisitor):
 
 
 class _RelayBuilder(PatternVisitor[Env]):
-    def __init__(self, pat_to_expr: PatExprMap):
+    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
         super().__init__()
         self.pat_to_expr = pat_to_expr
+        self.ty_map = ty_map
 
     def visit(self, p: Pattern, env: Env) -> relay.Expr:
         if p in self.pat_to_expr:
@@ -340,14 +362,14 @@ class _RelayBuilder(PatternVisitor[Env]):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
-            value = AttrEvaluator(self.pat_to_expr).visit(const.value, env)
+            value = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(const.value, env)
         else:
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: pat.Call, env: Env) -> relay.Expr:
         args = [self.visit(a, env) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.pat_to_expr).visit(attr, env))
+        attrs = dict([(name, AttrEvaluator(self.pat_to_expr, self.ty_map).visit(attr, env))
                       for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op, env)
         api = spec.get_api(op_name)
@@ -372,16 +394,16 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: pat.GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
-        idx = AttrEvaluator(self.pat_to_expr).visit(getitem.idx, env)
+        idx = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(getitem.idx, env)
         return tup[idx]
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> relay.Expr:
-        pred = AttrEvaluator(self.pat_to_expr).visit(cond.predicate, env)
+        pred = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(cond.predicate, env)
         return self.visit(cond.then_pat, env) if pred else self.visit(cond.else_pat, env)
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
-        length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)
+        length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(var.len, env)
 
         # Create fields
         fields: List[relay.Expr] = []
@@ -395,22 +417,31 @@ class _RelayBuilder(PatternVisitor[Env]):
         return relay.Tuple(fields)
 
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> relay.Expr:
-        inst = eval_get_inst(get_inst, self.pat_to_expr, env)
+        inst = eval_get_inst(get_inst, self.pat_to_expr, self.ty_map, env)
         return self.pat_to_expr[inst]
 
 
 class _RewriteMutator(relay.ExprMutator):
-    def __init__(self, expr_map: Dict[relay.Expr, relay.Expr]):
+    def __init__(self, subst_map: Dict[relay.Expr, relay.Expr], ty_map: ExprTypeMap):
         super().__init__()
-        self.expr_map = expr_map
+        self.subst_map = subst_map
+        self.ty_map = ty_map
 
     def visit(self, expr: relay.Expr):
-        if expr in self.expr_map:
-            return self.expr_map[expr]
+        if expr in self.subst_map:
+            new_expr = self.subst_map[expr]
+            if expr in self.ty_map:
+                self.ty_map[new_expr] = self.ty_map[expr]
+                del self.ty_map[expr]
+            return new_expr
         elif expr in self.memo_map:
             return self.memo_map[expr]
         else:
             ret = super().visit(expr)
+            if expr in self.ty_map:
+                self.ty_map[ret] = self.ty_map[expr]
+                if ret is not expr:
+                    del self.ty_map[expr]
             self.memo_map[expr] = ret
             return ret
 
@@ -449,10 +480,11 @@ class _RewriteMutator(relay.ExprMutator):
 
 
 class _SinglePatRewriter(relay.ExprMutator):
-    def __init__(self, rewriter: ExprRewriter):
+    def __init__(self, src: Pattern, tgt: Pattern, ty_map: ExprTypeMap):
         super().__init__()
-        self.src_pat = rewriter.src_outs[0]
-        self.tgt_pat = rewriter.tgt_outs[0]
+        self.src = src
+        self.tgt = tgt
+        self.ty_map = ty_map
 
     def visit(self, expr: relay.Expr):
         # Directly return if it has been visited before
@@ -461,15 +493,16 @@ class _SinglePatRewriter(relay.ExprMutator):
 
         # Rewrite predecessors
         new_expr = super().visit(expr)
-        self.memo_map[expr] = new_expr
 
         # Match pattern with this expression
         pat_to_expr: PatExprMap = {}
-        matcher = Matcher(pat_to_expr)
-        if not matcher.match(self.src_pat, new_expr, Env()):
-            return new_expr
+        matcher = Matcher(pat_to_expr, self.ty_map)
+        if matcher.match(self.src, new_expr, Env()):
+            new_expr = _RelayBuilder(pat_to_expr, self.ty_map).visit(self.tgt, Env())
 
-        # Build new expression
-        new_expr = _RelayBuilder(pat_to_expr).visit(self.tgt_pat, Env())
+        # Map to new expression
         self.memo_map[expr] = new_expr
+        if expr in self.ty_map:
+            self.ty_map[new_expr] = self.ty_map[expr]
+
         return new_expr

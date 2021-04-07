@@ -24,20 +24,17 @@ def cvt_ir_value(val) -> Any:
         return val
 
 
-def get_tensor_attr(expr: relay.Expr, name: str):
-    expr_ty = expr.checked_type
-    if not isinstance(expr_ty, ir.TensorType):
-        raise ValueError(
-            'Cannot get attribute from an expression not of tensor type.'
-        )
+def get_tensor_type_attr(ty: ir.TensorType, name: str):
     if name == 'shape':
-        return expr_ty.concrete_shape
+        return ty.concrete_shape
     elif name == 'ndim':
-        return len(expr_ty.concrete_shape)
+        return len(ty.concrete_shape)
     elif name == 'dtype':
-        return expr_ty.dtype
+        return ty.dtype
     else:
-        raise RuntimeError('Unreachable.')
+        raise RuntimeError(
+            'Unknown attribute {} for tensor type.'.format(name)
+        )
 
 
 def get_expr_pred(expr: relay.Expr) -> List[relay.Expr]:

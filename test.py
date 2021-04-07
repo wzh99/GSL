@@ -469,7 +469,6 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_group_conv_variadic'),
         # RuleTest('test_parallel_dense'),
         # RuleTest('test_parallel_dense_variadic'),
-        # RuleTest('test_nasnet_block'),
         # ModelTest('test_resnet'),
         # ModelTest('test_nasnet'),
         # ModelTest('test_transformer'),

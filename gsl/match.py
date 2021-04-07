@@ -3,13 +3,14 @@ from tvm import ir, relay
 
 from . import attr, pat, spec, util
 from .attr import Attr, Env
-from .eval import PatExprMap, AttrEvaluator, eval_get_inst
+from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
 
 
 class Matcher:
-    def __init__(self, pat_to_expr: PatExprMap):
+    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
         self.pat_to_expr = pat_to_expr
         self.expr_matched = set(pat_to_expr.values())
+        self.ty_map = ty_map
 
     def match(self, p: pat.Pattern, expr: relay.Expr, env: Env) -> bool:
         # Already matched, use history record
@@ -52,8 +53,9 @@ class Matcher:
             return False
 
         # Match attributes
+        ty = expr.checked_type
         for n, a in var.attrs.items():
-            if not self.match_attr(a, util.get_tensor_attr(expr, n), env):
+            if not self.match_attr(a, util.get_tensor_type_attr(ty, n), env):
                 return False
 
         return True
@@ -69,7 +71,7 @@ class Matcher:
             if not np.array_equal(const.value, expr_val):
                 return False
         if isinstance(const.value, attr.Attr):
-            pat_val = AttrEvaluator(self.pat_to_expr).visit(const.value, env)
+            pat_val = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(const.value, env)
             if not np.array_equal(pat_val, expr_val):
                 return False
 
@@ -147,7 +149,7 @@ class Matcher:
 
         # Match length if provided
         if var.len is not None:
-            length = AttrEvaluator(self.pat_to_expr).visit(var.len, env)
+            length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(var.len, env)
             if length != len(expr.fields):
                 return False
 
@@ -164,7 +166,7 @@ class Matcher:
         return True
 
     def match_get_inst(self, get_inst: pat.GetInst, expr: relay.Expr, env: Env) -> bool:
-        p = eval_get_inst(get_inst, self.pat_to_expr, env)
+        p = eval_get_inst(get_inst, self.pat_to_expr, self.ty_map, env)
         return self.match(p, expr, env)
 
     def match_attr(self, pat_attr: Attr, expr_attr, env: Env) -> bool:
@@ -179,7 +181,7 @@ class Matcher:
 
             # Check length if provided
             if pat_attr.len is not None:
-                length = AttrEvaluator(self.pat_to_expr).visit(pat_attr.len, env)
+                length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(pat_attr.len, env)
                 if length != len(expr_val):
                     return False
 
@@ -192,7 +194,7 @@ class Matcher:
 
             return True
         else:
-            pat_val = AttrEvaluator(self.pat_to_expr).visit(pat_attr, env)
+            pat_val = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(pat_attr, env)
             return self._match_val(pat_val, expr_val)
 
     @classmethod

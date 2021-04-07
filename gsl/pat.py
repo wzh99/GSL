@@ -60,6 +60,8 @@ class Pattern:
                 return True
         return False
 
+    tensor_attrs = ['shape', 'dtype', 'ndim']
+
     @property
     def avail_attrs(self) -> List[str]:
         return []
@@ -131,7 +133,10 @@ class Wildcard(Pattern):
     A wildcard node matches all nodes in graph. Target graph cannot contain wildcard nodes not
     defined in source graph.
     """
-    pass
+
+    @property
+    def avail_attrs(self) -> List[str]:
+        return self.tensor_attrs
 
 
 class Variable(Pattern):
@@ -139,8 +144,6 @@ class Variable(Pattern):
     A variable node matches input tensor of the model. Target graph cannot contain variable nodes
     not defined in source graph.
     """
-
-    tensor_attrs = ['shape', 'dtype', 'ndim']
 
     def __init__(self, shape: Union[tuple, attr.Attr, None] = None,
                  dtype: Union[str, attr.Attr, None] = None,
@@ -153,12 +156,7 @@ class Variable(Pattern):
             [shape, dtype, ndim]
         )))
         for n, a in raw_attrs.items():
-            if n in self.tensor_attrs:
-                self.attrs[n] = attr.to_attr(a)
-            else:
-                raise AttributeError(
-                    'Attribute {} not found in variable node.'.format(n)
-                )
+            self.attrs[n] = attr.to_attr(a)
 
     @property
     def avail_attrs(self) -> List[str]:
@@ -203,6 +201,10 @@ class Const(Pattern):
             raise TypeError(
                 'Cannot create constant node from value of type {}.'.format(value.__class__)
             )
+
+    @property
+    def avail_attrs(self) -> List[str]:
+        return self.tensor_attrs
 
 
 PatternConvertible = Union[Pattern, ConstValueType]
@@ -288,7 +290,13 @@ class Call(Pattern):
     def pred(self):
         return self.args
 
+    @property
+    def avail_attrs(self) -> List[str]:
+        return self.tensor_attrs
+
     def has_attr(self, name: str) -> bool:
+        if name in self.avail_attrs:
+            return True
         if isinstance(self.op, ConcreteOp):
             attr_names = spec.get_op_attr_names(self.op.name)
             return name in attr_names
@@ -331,7 +339,7 @@ class GetItem(Pattern):
 
     @property
     def avail_attrs(self) -> List[str]:
-        return ['index']
+        return self.tensor_attrs + ['index']
 
 
 class Cond(Pattern):
@@ -506,8 +514,9 @@ class GetInst(Pattern):
         self.tpl = tpl
         self.idx = index
 
-    def has_attr(self, name: str) -> bool:
-        return True
+    @property
+    def avail_attrs(self) -> List[str]:
+        return self.tpl.avail_attrs
 
 
 ArgType = TypeVar('ArgType')

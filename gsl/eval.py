@@ -4,13 +4,16 @@ from tvm import relay
 
 from . import attr, pat, util
 from .attr import Attr, Env
+from .pat import Pattern
 
 PatExprMap = Dict[pat.Pattern, relay.Expr]
+ExprTypeMap = Dict[relay.Expr, relay.Type]
 
 
 class AttrEvaluator(attr.AttrVisitor[Env]):
-    def __init__(self, pat_to_expr: PatExprMap):
+    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
         self.pat_to_expr = pat_to_expr
+        self.ty_map = ty_map
 
     def visit(self, a: Attr, env: Env) -> Any:
         return util.cvt_ir_value(super().visit(a, env))
@@ -25,7 +28,7 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         # Get actual expression from map
         p = get_attr.pat
         if isinstance(p, pat.GetInst):  # map template to instance
-            p = eval_get_inst(p, self.pat_to_expr, env)
+            p = eval_get_inst(p, self.pat_to_expr, self.ty_map, env)
         name = get_attr.name
 
         # Handle variadic pattern
@@ -38,14 +41,26 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         expr = self.pat_to_expr[p]
 
         # Get attribute from expression
-        if isinstance(p, pat.Variable) and name in pat.Variable.tensor_attrs:
-            return util.get_tensor_attr(expr, name)
+        if name in Pattern.tensor_attrs:
+            return self._get_tensor_attr(expr, name)
         elif isinstance(p, pat.Call) and expr.attrs is not None and name in expr.attrs.keys():
             return expr.attrs[name]
         elif isinstance(p, pat.GetItem) and name == 'index':
             return expr.index
         else:
             raise RuntimeError('Cannot get attribute from expression.')
+
+    def _get_tensor_attr(self, expr: relay.Expr, name: str):
+        if expr not in self.ty_map:
+            raise RuntimeError(
+                'Type of expression is not available.'
+            )
+        ty = self.ty_map[expr]
+        if not isinstance(ty, relay.TensorType):
+            raise RuntimeError(
+                'Expression is not of tensor type.'
+            )
+        return util.get_tensor_type_attr(ty, name)
 
     def visit_tuple(self, tup_attr: attr.Tuple, env: Env):
         return tuple([self.visit(f, env) for f in tup_attr.fields])
@@ -119,7 +134,7 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         return result
 
 
-def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, env: Env) \
+def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, env: Env) \
         -> pat.Pattern:
-    idx = AttrEvaluator(pat_to_expr).visit(get_inst.idx, env)
+    idx = AttrEvaluator(pat_to_expr, ty_map).visit(get_inst.idx, env)
     return get_inst.var.get_inst(idx, get_inst.tpl)

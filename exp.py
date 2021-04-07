@@ -79,7 +79,7 @@ class SimplifyBatchNorm(SubstTest):
         beta = relay.var('beta', shape=(2,))
         mean = relay.var('mean', shape=(2,))
         var = relay.var('var', shape=(2,))
-        bn = relay.nn.batch_norm(x, gamma, beta, mean, var, scale=True, center=True)
+        bn = relay.nn.batch_norm(x, gamma, beta, mean, var)
         return bn[0], {'x'}
 
     def get_pass(self) -> transform.Pass:
@@ -94,14 +94,14 @@ class SimplifyBatchNorm(SubstTest):
         var = pat.Variable()
 
         # Source pattern: batch_norm(x, gamma, beta, mean, var)
-        bn = op.BatchNorm(x, gamma, beta, mean, var, axis=1)
+        bn = op.BatchNorm(x, gamma, beta, mean, var)
         y1 = bn[0]
 
         # Target pattern: k = gamma / sqrt(var + epsilon), x * k + beta - mean * k
         std = op.Sqrt(var + bn.epsilon)
         k = pat.Cond(bn.scale, gamma / std, 1.0 / std)
         bias = pat.Cond(bn.center, beta - mean * k, -mean * k)
-        y2 = op.BiasAdd(x * op.ExpandDims(k, axis=1, num_newaxis=2), bias)
+        y2 = op.BiasAdd(x * op.ExpandDims(k, axis=1, num_newaxis=x.ndim - 1 - bn.axis), bias)
 
         # Build substitution
         return Subst(y1, y2)
