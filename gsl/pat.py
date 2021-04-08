@@ -207,10 +207,10 @@ class Const(Pattern):
         return self.tensor_attrs
 
 
-PatternConvertible = Union[Pattern, ConstValueType]
+PatternLike = Union[Pattern, ConstValueType]
 
 
-def to_pat(val: PatternConvertible) -> Pattern:
+def to_pat(val: PatternLike) -> Pattern:
     """
     Create a graph pattern node with given value.
 
@@ -253,7 +253,7 @@ class Call(Pattern):
     Represents an operator call.
     """
 
-    def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternConvertible, **raw_attr):
+    def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternLike, **raw_attr):
         super().__init__()
         self.args = [to_pat(a) for a in args]
 
@@ -318,7 +318,7 @@ def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, attr.Attr]:
 
 
 class Tuple(Pattern):
-    def __init__(self, *raw_fields: PatternConvertible):
+    def __init__(self, *raw_fields: PatternLike):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
 
@@ -328,7 +328,7 @@ class Tuple(Pattern):
 
 
 class GetItem(Pattern):
-    def __init__(self, tup: Pattern, index: attr.AttrConvertible = None):
+    def __init__(self, tup: Pattern, index: attr.AttrLike = None):
         super().__init__()
         self.tup = tup
         self.idx = attr.to_attr(index)
@@ -348,8 +348,8 @@ class Cond(Pattern):
     This pattern can only be used in rewrite process but not in match.
     """
 
-    def __init__(self, predicate: attr.Attr, then_pat: PatternConvertible,
-                 else_pat: PatternConvertible):
+    def __init__(self, predicate: attr.Attr, then_pat: PatternLike,
+                 else_pat: PatternLike):
         super().__init__()
         self.predicate = predicate
         self.then_pat = to_pat(then_pat)
@@ -370,7 +370,7 @@ class Variadic(Pattern):
                  templates: Optional[List[Pattern]] = None,
                  first: Optional[List[Optional[Pattern]]] = None,
                  index: Optional[attr.Symbol] = None,
-                 length: Optional[attr.AttrConvertible] = None,
+                 length: Optional[attr.AttrLike] = None,
                  min_len: Optional[int] = None):
         """
         Constructor.
@@ -452,7 +452,7 @@ class Variadic(Pattern):
     def avail_attrs(self) -> List[str]:
         return ['length']
 
-    def __call__(self, tpl: Pattern, index: attr.AttrConvertible):
+    def __call__(self, tpl: Pattern, index: attr.AttrLike):
         if tpl not in self.templates:
             raise ValueError('Pattern is not template of this variadic.')
         return GetInst(self, tpl, attr.to_attr(index))
