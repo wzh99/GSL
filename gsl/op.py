@@ -195,6 +195,21 @@ class GroupNorm(pat.Call):
                          }))
 
 
+class InstanceNorm(pat.Call):
+    def __init__(self, data: PatternLike,
+                 gamma: PatternLike,
+                 beta: PatternLike,
+                 axis: Union[int, Attr, None] = None,
+                 epsilon: Union[float, Attr, None] = None,
+                 center: Union[bool, Attr, None] = None,
+                 scale: Union[bool, Attr, None] = None):
+        super().__init__('nn.instance_norm', data, gamma, beta,
+                         **pat.filter_attrs({
+                             'axis': axis, 'epsilon': epsilon, 'center': center,
+                             'scale': scale,
+                         }))
+
+
 class BiasAdd(pat.Call):
     def __init__(self, data: PatternLike,
                  bias: PatternLike,

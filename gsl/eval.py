@@ -77,6 +77,9 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
     def visit_tuple(self, tup_attr: attr.Tuple, env: Env):
         return tuple([self.visit(f, env) for f in tup_attr.fields])
 
+    def visit_tuple_len(self, tuple_len: attr.TupleLen, env: Env):
+        return len(self.visit(tuple_len.tup, env))
+
     def visit_getitem(self, getitem: attr.GetItem, env: Env):
         return self.visit(getitem.tup, env)[self.visit(getitem.index, env)]
 

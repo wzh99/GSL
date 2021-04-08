@@ -141,6 +141,15 @@ class Tuple(Attr):
         self.fields = [to_attr(e) for e in fields]
 
 
+class TupleLen(Attr):
+    """
+    Get length of a tuple.
+    """
+
+    def __init__(self, tup: Attr):
+        self.tup = tup
+
+
 class GetItem(Attr):
     """
     Get one item from a tuple attribute with given index.
@@ -428,6 +437,8 @@ class AttrVisitor(Generic[ArgType, RetType]):
             return self.visit_range(attr, arg)
         elif isinstance(attr, Tuple):
             return self.visit_tuple(attr, arg)
+        elif isinstance(attr, TupleLen):
+            return self.visit_tuple_len(attr, arg)
         elif isinstance(attr, GetItem):
             return self.visit_getitem(attr, arg)
         elif isinstance(attr, Slice):
@@ -466,6 +477,9 @@ class AttrVisitor(Generic[ArgType, RetType]):
     def visit_tuple(self, tup_attr: Tuple, arg: ArgType):
         for f in tup_attr.fields:
             self.visit(f, arg)
+
+    def visit_tuple_len(self, tuple_len: TupleLen, arg: ArgType):
+        self.visit(tuple_len.tup, arg)
 
     def visit_getitem(self, getitem: GetItem, arg: ArgType):
         self.visit(getitem.tup, arg)

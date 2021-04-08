@@ -86,11 +86,11 @@ def _ndim(expr: relay.Expr) -> int:
 
 
 def _num_new_axis(axis: int, ndim: int):
-    return ndim - 1 - _pos_axis(axis, ndim)
+    return ndim - 1 - axis
 
 
 def _num_new_axis_attr(axis: attr.Attr, ndim: attr.Attr):
-    return ndim - 1 - _pos_axis_attr(axis, ndim)
+    return ndim - 1 - axis
 
 
 class LowerBatchNorm(SubstTest):
@@ -202,7 +202,8 @@ class LowerLayerNorm(SubstTest):
         var = op.Sum(demean * demean, axis=(ln.axis,), keepdims=True) / \
               op.Cast(x.shape[ln.axis], dtype=x.dtype)
         norm = demean / op.Sqrt(var + ln.epsilon)
-        n_new = _num_new_axis_attr(ln.axis, x.ndim)
+        axis = _pos_axis_attr(ln.axis, x.ndim)
+        n_new = _num_new_axis_attr(axis, x.ndim)
         gamma = pat.Cond(n_new > 0, op.ExpandDims(gamma, axis=1, num_newaxis=n_new), gamma)
         beta = pat.Cond(n_new > 0, op.ExpandDims(beta, axis=1, num_newaxis=n_new), beta)
         scale = pat.Cond(ln.scale, norm * gamma, norm)
@@ -237,12 +238,12 @@ class LowerGroupNorm(SubstTest):
         n_grp = gn.attrs['num_groups']
         x_shape = _shape(x)
         new_shape = x_shape[:axis] + (n_grp, x_shape[axis] // n_grp) + x_shape[axis + 1:]
-        reduce_axes = tuple(range(axis + 1, _ndim(x) + 1))
+        reduced_axes = tuple(range(axis + 1, _ndim(x) + 1))
         reshaped = relay.reshape(x, new_shape)
-        mean = relay.mean(reshaped, axis=reduce_axes, keepdims=True)
+        mean = relay.mean(reshaped, axis=reduced_axes, keepdims=True)
         demean = reshaped - mean
         n_val = reduce(int.__mul__, new_shape[axis + 1:], 1)
-        var = relay.sum(demean * demean, axis=reduce_axes, keepdims=True) / \
+        var = relay.sum(demean * demean, axis=reduced_axes, keepdims=True) / \
               relay.cast(relay.const(n_val), dtype=x.checked_type.dtype)
         norm = demean / relay.sqrt(var + relay.const(gn.attrs['epsilon']))
         norm = relay.reshape(norm, x_shape)
@@ -267,16 +268,16 @@ class LowerGroupNorm(SubstTest):
         n_grp = gn.num_groups
         new_shape = x.shape[attr.Slice(stop=axis)] + (n_grp, x.shape[axis] // n_grp) + \
                     x.shape[attr.Slice(start=axis + 1)]
-        reduce_axes = attr.Range(start=axis + 1, stop=x.ndim + 1)
+        reduced_axes = attr.Range(start=axis + 1, stop=x.ndim + 1)
         reshaped = op.Reshape(x, new_shape)
-        mean = op.Mean(reshaped, axis=reduce_axes, keepdims=True)
+        mean = op.Mean(reshaped, axis=reduced_axes, keepdims=True)
         demean = reshaped - mean
         n_val = attr.ReduceTuple(attr.BinaryOp.MUL, new_shape[attr.Slice(start=axis + 1)], 1)
-        var = op.Sum(demean * demean, axis=reduce_axes, keepdims=True) / \
+        var = op.Sum(demean * demean, axis=reduced_axes, keepdims=True) / \
               op.Cast(n_val, dtype=x.dtype)
         norm = demean / op.Sqrt(var + gn.epsilon)
         norm = op.Reshape(norm, newshape=x.shape)
-        n_new = _num_new_axis_attr(gn.axis, x.ndim)
+        n_new = _num_new_axis_attr(axis, x.ndim)
         gamma = pat.Cond(n_new > 0, op.ExpandDims(gamma, axis=1, num_newaxis=n_new), gamma)
         beta = pat.Cond(n_new > 0, op.ExpandDims(beta, axis=1, num_newaxis=n_new), beta)
         scale = pat.Cond(gn.scale, norm * gamma, norm)
@@ -294,6 +295,31 @@ class LowerInstanceNorm(SubstTest):
 
     def get_pass(self) -> transform.Pass:
         return relay.transform.SimplifyInference()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        gamma = pat.Variable()
+        beta = pat.Variable()
+
+        inst_norm = op.InstanceNorm(x, gamma, beta)
+
+        axis = _pos_axis_attr(inst_norm.axis, x.ndim)
+        reduced_axes = attr.Range(start=1, stop=axis) + attr.Range(start=axis + 1, stop=x.ndim)
+        mean = op.Mean(x, axis=reduced_axes, keepdims=True)
+        demean = x - mean
+        i = attr.Symbol()
+        n_val = attr.Reduce(attr.BinaryOp.MUL, 1, x.shape[reduced_axes[i]], i,
+                            attr.TupleLen(reduced_axes))
+        var = op.Sum(demean * demean, axis=reduced_axes, keepdims=True) / \
+              op.Cast(n_val, dtype=x.dtype)
+        norm = demean / op.Sqrt(var + inst_norm.epsilon)
+        n_new = _num_new_axis_attr(axis, x.ndim)
+        gamma = pat.Cond(n_new > 0, op.ExpandDims(gamma, axis=1, num_newaxis=n_new), gamma)
+        beta = pat.Cond(n_new > 0, op.ExpandDims(beta, axis=1, num_newaxis=n_new), beta)
+        scale = pat.Cond(inst_norm.scale, norm * gamma, norm)
+        center = pat.Cond(inst_norm.center, scale + beta, scale)
+
+        return Subst(inst_norm, center)
 
 
 if __name__ == '__main__':
