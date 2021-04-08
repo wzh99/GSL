@@ -154,14 +154,25 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         result = self.visit(red.init, env)
         for i in range(length):
             elem = self.visit(red.elem, env + (red.index, i))
-            ty_tup = (result.__class__, elem.__class__)
-            func_map = attr.Binary.eval_func[red.op]
-            if ty_tup not in func_map:
-                raise RuntimeError(
-                    'Cannot reduce values of type ({}, {})'.format(ty_tup[0], ty_tup[1])
-                )
-            result = func_map[ty_tup](result, elem)
+            result = self._try_reduce(red.op, result, elem)
         return result
+
+    def visit_reduce_tuple(self, red: attr.ReduceTuple, env: Env):
+        tup = self.visit(red.tup, env)
+        result = self.visit(red.init, env)
+        for elem in tup:
+            result = self._try_reduce(red.op, result, elem)
+        return result
+
+    @classmethod
+    def _try_reduce(cls, op: attr.BinaryOp, prev: Any, elem: Any) -> Any:
+        ty_tup = (prev.__class__, elem.__class__)
+        func_map = attr.Binary.eval_func[op]
+        if ty_tup not in func_map:
+            raise RuntimeError(
+                'Cannot reduce values of type ({}, {})'.format(ty_tup[0], ty_tup[1])
+            )
+        return func_map[ty_tup](prev, elem)
 
 
 def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, env: Env) \

@@ -1,3 +1,4 @@
+from functools import reduce
 from typing import Dict, Optional
 
 from tvm import relay, transform, ir
@@ -68,7 +69,7 @@ class SubstTest(dfp.DFPatternCallback):
                 gsl_wl.visualize()
 
 
-def _pos_axis(axis: int, ndim: int) -> int:
+def _pos_axis(axis: int, ndim: int):
     return axis if axis >= 0 else ndim + axis
 
 
@@ -76,8 +77,16 @@ def _pos_axis_attr(axis: attr.Attr, ndim: attr.Attr):
     return attr.Cond(axis >= 0, axis, ndim + axis)
 
 
+def _shape(expr: relay.Expr):
+    return expr.checked_type.concrete_shape
+
+
 def _ndim(expr: relay.Expr) -> int:
-    return len(expr.checked_type.concrete_shape)
+    return len(_shape(expr))
+
+
+def _num_new_axis(axis: int, ndim: int):
+    return ndim - 1 - _pos_axis(axis, ndim)
 
 
 def _num_new_axis_attr(axis: attr.Attr, ndim: attr.Attr):
@@ -171,10 +180,9 @@ class LowerLayerNorm(SubstTest):
         norm = demean / relay.sqrt(var + relay.const(ln.attrs['epsilon']))
         n_new = _ndim(x) - 1 - _pos_axis(axis, _ndim(x))
         gamma = node_map[self.gamma]
-        if n_new > 0:
-            gamma = relay.expand_dims(gamma, 1, num_newaxis=n_new)
         beta = node_map[self.beta]
         if n_new > 0:
+            gamma = relay.expand_dims(gamma, 1, num_newaxis=n_new)
             beta = relay.expand_dims(beta, 1, num_newaxis=n_new)
         scale = norm * gamma if ln.attrs['scale'] else norm
         center = scale + beta if ln.attrs['center'] else scale
@@ -204,6 +212,15 @@ class LowerLayerNorm(SubstTest):
 
 
 class LowerGroupNorm(SubstTest):
+    def __init__(self):
+        super().__init__()
+
+        self.x = dfp.wildcard()
+        self.gamma = dfp.is_var()
+        self.beta = dfp.is_var()
+        self.gn = dfp.is_op('nn.group_norm')(self.x, self.gamma, self.beta)
+        self.pattern = self.gn
+
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4, 4))
         gamma = relay.var('gamma', shape=(4,))
@@ -213,6 +230,32 @@ class LowerGroupNorm(SubstTest):
     def get_pass(self) -> transform.Pass:
         return relay.transform.SimplifyInference()
 
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+        x = node_map[self.x]
+        gn = node_map[self.gn]
+        axis = gn.attrs['axis']
+        n_grp = gn.attrs['num_groups']
+        x_shape = _shape(x)
+        new_shape = x_shape[:axis] + (n_grp, x_shape[axis] // n_grp) + x_shape[axis + 1:]
+        reduce_axes = tuple(range(axis + 1, _ndim(x) + 1))
+        reshaped = relay.reshape(x, new_shape)
+        mean = relay.mean(reshaped, axis=reduce_axes, keepdims=True)
+        demean = reshaped - mean
+        n_val = reduce(int.__mul__, new_shape[axis + 1:], 1)
+        var = relay.sum(demean * demean, axis=reduce_axes, keepdims=True) / \
+              relay.cast(relay.const(n_val), dtype=x.checked_type.dtype)
+        norm = demean / relay.sqrt(var + relay.const(gn.attrs['epsilon']))
+        norm = relay.reshape(norm, x_shape)
+        n_new = _num_new_axis(axis, _ndim(x))
+        gamma = node_map[self.gamma]
+        beta = node_map[self.beta]
+        if n_new > 0:
+            gamma = relay.expand_dims(gamma, 1, num_newaxis=n_new)
+            beta = relay.expand_dims(beta, 1, num_newaxis=n_new)
+        scale = norm * gamma if gn.attrs['scale'] else norm
+        center = scale + beta if gn.attrs['center'] else scale
+        return center
+
     def define_gsl(self) -> Optional[Subst]:
         x = pat.Wildcard()
         gamma = pat.Variable()
@@ -220,7 +263,7 @@ class LowerGroupNorm(SubstTest):
 
         gn = op.GroupNorm(x, gamma, beta)
 
-        axis = _pos_axis(gn.axis, x.ndim)
+        axis = _pos_axis_attr(gn.axis, x.ndim)
         n_grp = gn.num_groups
         new_shape = x.shape[attr.Slice(stop=axis)] + (n_grp, x.shape[axis] // n_grp) + \
                     x.shape[attr.Slice(start=axis + 1)]
@@ -228,8 +271,7 @@ class LowerGroupNorm(SubstTest):
         reshaped = op.Reshape(x, new_shape)
         mean = op.Mean(reshaped, axis=reduce_axes, keepdims=True)
         demean = reshaped - mean
-        i = attr.Symbol()
-        n_val = attr.Reduce(attr.BinaryOp.MUL, 1, new_shape[axis + 1 + i], i, x.ndim - axis)
+        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, new_shape[attr.Slice(start=axis + 1)], 1)
         var = op.Sum(demean * demean, axis=reduce_axes, keepdims=True) / \
               op.Cast(n_val, dtype=x.dtype)
         norm = demean / op.Sqrt(var + gn.epsilon)
@@ -243,10 +285,22 @@ class LowerGroupNorm(SubstTest):
         return Subst(gn, center)
 
 
+class LowerInstanceNorm(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        gamma = relay.var('gamma', shape=(4,))
+        beta = relay.var('beta', shape=(4,))
+        return relay.nn.instance_norm(x, gamma, beta)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyInference()
+
+
 if __name__ == '__main__':
-    for case in [
-        # LowerBatchNorm(),
-        # LowerLayerNorm(),
-        LowerGroupNorm(),
+    for cls in [
+        # LowerBatchNorm,
+        # LowerLayerNorm,
+        # LowerGroupNorm,
+        LowerInstanceNorm,
     ]:
-        case.run()
+        cls().run()

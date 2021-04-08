@@ -366,11 +366,11 @@ class Variadic(Attr):
 
 class Reduce(Attr):
     """
-    Reduce attribute values.
+    Reduce attribute values in a range.
     """
 
     reduce_ops = {
-        BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR
+        BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR, BinaryOp.MAX, BinaryOp.MIN,
     }
 
     def __init__(self, op: BinaryOp, init: AttrLike, elem: AttrLike, index: Symbol,
@@ -385,12 +385,31 @@ class Reduce(Attr):
         :param length: Length of reduction.
         """
         if op not in self.reduce_ops:
-            raise ValueError('Operator \'{}\' cannot be used for reduction.')
+            raise ValueError(
+                'Operator \'{}\' cannot be used for reduction.'.format(op.value)
+            )
+
         self.op = op
         self.init = to_attr(init)
         self.elem = to_attr(elem)
         self.index = index
         self.len = to_attr(length)
+
+
+class ReduceTuple(Attr):
+    """
+    Reduce values in a tuple
+    """
+
+    def __init__(self, op: BinaryOp, tup: AttrLike, init: AttrLike):
+        if op not in Reduce.reduce_ops:
+            raise ValueError(
+                'Operator \'{}\' cannot be used for reduction.'.format(op.value)
+            )
+
+        self.op = op
+        self.tup = to_attr(tup)
+        self.init = to_attr(init)
 
 
 ArgType = TypeVar('ArgType')
@@ -425,6 +444,8 @@ class AttrVisitor(Generic[ArgType, RetType]):
             return self.visit_variadic(attr, arg)
         elif isinstance(attr, Reduce):
             return self.visit_reduce(attr, arg)
+        elif isinstance(attr, ReduceTuple):
+            return self.visit_reduce_tuple(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
@@ -478,7 +499,8 @@ class AttrVisitor(Generic[ArgType, RetType]):
         pass
 
     def visit_reduce(self, red: Reduce, arg: ArgType):
-        self.visit(red.elem, arg)
+        pass
+
+    def visit_reduce_tuple(self, red: ReduceTuple, arg: ArgType):
+        self.visit(red.tup, arg)
         self.visit(red.init, arg)
-        self.visit(red.index, arg)
-        self.visit(red.len, arg)
