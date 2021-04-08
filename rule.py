@@ -280,7 +280,8 @@ def parallel_conv_variadic():
     i = attr.Symbol()
     j = attr.Symbol()
     split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
-        attr.Sum(src(w, j).shape[0], j, i + 1), index=i, length=src.length - 1))
+        attr.Reduce(attr.BinaryOp.ADD, 0, src(w, j).shape[0], j, i + 1), index=i,
+        length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
     tgt = pat.Variadic(item, templates=[item], index=i)
@@ -403,7 +404,8 @@ def parallel_dense_variadic():
     i = attr.Symbol()
     j = attr.Symbol()
     split = op.Split(dense, axis=-1, indices_or_sections=attr.Variadic(
-        attr.Sum(src(w, j).shape[0], j, i + 1), index=i, length=src.length - 1))
+        attr.Reduce(attr.BinaryOp.ADD, 0, src(w, j).shape[0], j, i + 1), index=i,
+        length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
     tgt = pat.Variadic(item, templates=[item], index=i)

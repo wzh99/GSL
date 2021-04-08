@@ -189,7 +189,7 @@ class Matcher:
             for i in range(len(expr_val)):
                 new_env = env if pat_attr.index is None \
                     else Env(prev=env, symbol=pat_attr.index, value=i)
-                if not self.match_attr(pat_attr.attr, expr_val[i], new_env):
+                if not self.match_attr(pat_attr.field, expr_val[i], new_env):
                     return False
 
             return True

@@ -188,7 +188,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
         self.attr_checker.visit(get_inst.idx, env)
 
 
-class _SrcAttrChecker(AttrVisitor[Env]):
+class _SrcAttrChecker(AttrVisitor[Env, None]):
     def __init__(self, pat_checker: _SrcPatChecker):
         self.checker = pat_checker
 
@@ -206,7 +206,13 @@ class _SrcAttrChecker(AttrVisitor[Env]):
         if var.len is not None:
             self.visit(var.len, env)
         new_env = env if var.index is None else env + (var.index, True)
-        self.visit(var.attr, new_env)
+        self.visit(var.field, new_env)
+
+    def visit_reduce(self, red: attr.Reduce, env: Env):
+        self.visit(red.len, env)
+        self.visit(red.init, env)
+        new_env = env + (red.index, True)
+        self.visit(red.elem, new_env)
 
 
 class _TgtPatChecker(PatternVisitor[Env]):
@@ -298,7 +304,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         self.attr_checker.visit(get_inst.idx, env)
 
 
-class _TgtAttrChecker(AttrVisitor[Env]):
+class _TgtAttrChecker(AttrVisitor[Env, None]):
     def __init__(self, src_nodes: Set[Pattern]):
         self.src_nodes = src_nodes
 
@@ -309,7 +315,13 @@ class _TgtAttrChecker(AttrVisitor[Env]):
             )
         self.visit(var.len, env)
         new_env = env if var.index is None else env + (var.index, True)
-        self.visit(var.attr, new_env)
+        self.visit(var.field, new_env)
+
+    def visit_reduce(self, red: attr.Reduce, env: Env):
+        self.visit(red.len, env)
+        self.visit(red.init, env)
+        new_env = env + (red.index, True)
+        self.visit(red.elem, new_env)
 
 
 @relay.transform.function_pass(opt_level=0)

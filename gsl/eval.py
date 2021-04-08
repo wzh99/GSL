@@ -10,7 +10,7 @@ PatExprMap = Dict[pat.Pattern, relay.Expr]
 ExprTypeMap = Dict[relay.Expr, relay.Type]
 
 
-class AttrEvaluator(attr.AttrVisitor[Env]):
+class AttrEvaluator(attr.AttrVisitor[Env, Any]):
     def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
         self.pat_to_expr = pat_to_expr
         self.ty_map = ty_map
@@ -62,11 +62,34 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
             )
         return util.get_tensor_type_attr(ty, name)
 
+    def visit_range(self, ran_attr: attr.Range, env: Env):
+        stop = self.visit(ran_attr.stop, env)
+        start = self.visit(ran_attr.start, env)
+        step = self.visit(ran_attr.step, env)
+        if start is None:
+            ran_val = range(stop)
+        elif step is None:
+            ran_val = range(start, stop)
+        else:
+            ran_val = range(start, stop, step)
+        return tuple(ran_val)
+
     def visit_tuple(self, tup_attr: attr.Tuple, env: Env):
         return tuple([self.visit(f, env) for f in tup_attr.fields])
 
     def visit_getitem(self, getitem: attr.GetItem, env: Env):
-        return self.visit(getitem.seq, env)[self.visit(getitem.index, env)]
+        return self.visit(getitem.tup, env)[self.visit(getitem.index, env)]
+
+    def visit_slice(self, slc: attr.Slice, env: Env):
+        start = self.visit(slc.start, env)
+        stop = self.visit(slc.stop, env)
+        step = self.visit(slc.step, env)
+        return slice(start, stop, step)
+
+    def visit_getslice(self, getslice: attr.GetSlice, env: Env):
+        tup = self.visit(getslice.tup, env)
+        slc = self.visit_slice(getslice.slc, env)
+        return tup[slc]
 
     def visit_unary(self, unary: attr.Unary, env: Env):
         v = self.visit(unary.attr, env)
@@ -122,15 +145,22 @@ class AttrEvaluator(attr.AttrVisitor[Env]):
         fields = []
         for i in range(length):
             new_env = env if var.len is None else env + (var.index, i)
-            fields.append(self.visit(var.attr, new_env))
+            fields.append(self.visit(var.field, new_env))
 
         return fields
 
-    def visit_sum(self, s: attr.Sum, env: Env):
-        length = self.visit(s.len, env)
-        result = 0
+    def visit_reduce(self, red: attr.Reduce, env: Env):
+        length = self.visit(red.len, env)
+        result = self.visit(red.init, env)
         for i in range(length):
-            result += self.visit(s.elem, env + (s.index, i))
+            elem = self.visit(red.elem, env + (red.index, i))
+            ty_tup = (result.__class__, elem.__class__)
+            func_map = attr.Binary.eval_func[red.op]
+            if ty_tup not in func_map:
+                raise RuntimeError(
+                    'Cannot reduce values of type ({}, {})'.format(ty_tup[0], ty_tup[1])
+                )
+            result = func_map[ty_tup](result, elem)
         return result
 
 

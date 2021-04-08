@@ -12,8 +12,11 @@ class Attr:
     """
     value_class = (bool, int, float, str)
 
-    def __getitem__(self, index: 'AttrConvertible'):
-        return GetItem(self, index)
+    def __getitem__(self, index: 'AttrLike'):
+        if isinstance(index, Slice):
+            return GetSlice(self, index)
+        else:
+            return GetItem(self, index)
 
     def __neg__(self):
         return Unary(UnaryOp.NEG, self)
@@ -21,74 +24,74 @@ class Attr:
     def __invert__(self):
         return Unary(UnaryOp.NOT, self)
 
-    def __add__(self, other: 'AttrConvertible'):
+    def __add__(self, other: 'AttrLike'):
         return Binary(BinaryOp.ADD, self, other)
 
-    def __radd__(self, other: 'AttrConvertible'):
+    def __radd__(self, other: 'AttrLike'):
         return Binary(BinaryOp.ADD, other, self)
 
-    def __sub__(self, other: 'AttrConvertible'):
+    def __sub__(self, other: 'AttrLike'):
         return Binary(BinaryOp.SUB, self, other)
 
-    def __rsub__(self, other: 'AttrConvertible'):
+    def __rsub__(self, other: 'AttrLike'):
         return Binary(BinaryOp.SUB, other, self)
 
-    def __mul__(self, other: 'AttrConvertible'):
+    def __mul__(self, other: 'AttrLike'):
         return Binary(BinaryOp.MUL, self, other)
 
-    def __rmul__(self, other: 'AttrConvertible'):
+    def __rmul__(self, other: 'AttrLike'):
         return Binary(BinaryOp.MUL, other, self)
 
-    def __floordiv__(self, other: 'AttrConvertible'):
+    def __floordiv__(self, other: 'AttrLike'):
         return Binary(BinaryOp.FLOOR_DIV, self, other)
 
-    def __rfloordiv__(self, other: 'AttrConvertible'):
+    def __rfloordiv__(self, other: 'AttrLike'):
         return Binary(BinaryOp.FLOOR_DIV, other, self)
 
-    def __mod__(self, other: 'AttrConvertible'):
+    def __mod__(self, other: 'AttrLike'):
         return Binary(BinaryOp.MOD, self, other)
 
-    def __rmod__(self, other: 'AttrConvertible'):
+    def __rmod__(self, other: 'AttrLike'):
         return Binary(BinaryOp.MOD, other, self)
 
-    def __eq__(self, other: 'AttrConvertible'):
+    def __eq__(self, other: 'AttrLike'):
         return Binary(BinaryOp.EQ, self, other)
 
-    def __ne__(self, other: 'AttrConvertible'):
+    def __ne__(self, other: 'AttrLike'):
         return Binary(BinaryOp.NE, self, other)
 
-    def __lt__(self, other: 'AttrConvertible'):
+    def __lt__(self, other: 'AttrLike'):
         return Binary(BinaryOp.LT, self, other)
 
-    def __le__(self, other: 'AttrConvertible'):
+    def __le__(self, other: 'AttrLike'):
         return Binary(BinaryOp.LE, self, other)
 
-    def __gt__(self, other: 'AttrConvertible'):
+    def __gt__(self, other: 'AttrLike'):
         return Binary(BinaryOp.GT, self, other)
 
-    def __ge__(self, other: 'AttrConvertible'):
+    def __ge__(self, other: 'AttrLike'):
         return Binary(BinaryOp.GE, self, other)
 
-    def __and__(self, other: 'AttrConvertible'):
+    def __and__(self, other: 'AttrLike'):
         return Binary(BinaryOp.AND, self, other)
 
-    def __rand__(self, other: 'AttrConvertible'):
+    def __rand__(self, other: 'AttrLike'):
         return Binary(BinaryOp.AND, other, self)
 
-    def __or__(self, other: 'AttrConvertible'):
+    def __or__(self, other: 'AttrLike'):
         return Binary(BinaryOp.OR, self, other)
 
-    def __ror__(self, other: 'AttrConvertible'):
+    def __ror__(self, other: 'AttrLike'):
         return Binary(BinaryOp.OR, other, self)
 
-    def max(self, other: 'AttrConvertible'):
+    def max(self, other: 'AttrLike'):
         return Binary(BinaryOp.MAX, self, other)
 
-    def min(self, other: 'AttrConvertible'):
+    def min(self, other: 'AttrLike'):
         return Binary(BinaryOp.MIN, self, other)
 
 
-AttrConvertible = Union[Attr, AttrValueType, None]
+AttrLike = Union[Attr, AttrValueType, None]
 
 
 class Any(Attr):
@@ -118,6 +121,17 @@ class GetAttr(Attr):
         self.name = name
 
 
+class Range(Attr):
+    """
+    Produces a tuple with elements in given range.
+    """
+
+    def __init__(self, stop: AttrLike, start: AttrLike = None, step: AttrLike = None):
+        self.stop = to_attr(stop)
+        self.start = to_attr(start)
+        self.step = to_attr(step)
+
+
 class Tuple(Attr):
     """
     Create a list attribute expression.
@@ -129,15 +143,36 @@ class Tuple(Attr):
 
 class GetItem(Attr):
     """
-    Get item from a tuple attribute with given index.
+    Get one item from a tuple attribute with given index.
     """
 
-    def __init__(self, seq: Attr, index: AttrConvertible):
-        self.seq = seq
+    def __init__(self, tup: Attr, index: AttrLike):
+        self.tup = tup
         self.index = to_attr(index)
 
 
-def to_attr(val: AttrConvertible) -> Attr:
+class Slice(Attr):
+    """
+    Create a slice attribute.
+    """
+
+    def __init__(self, start: AttrLike = None, stop: AttrLike = None, step: AttrLike = None):
+        self.start = to_attr(start)
+        self.stop = to_attr(stop)
+        self.step = to_attr(step)
+
+
+class GetSlice(Attr):
+    """
+    Get slice from a tuple.
+    """
+
+    def __init__(self, tup: Attr, slc: Slice):
+        self.tup = tup
+        self.slc = slc
+
+
+def to_attr(val: AttrLike) -> Attr:
     """
     Create an attribute expression with given value.
 
@@ -168,7 +203,7 @@ class Unary(Attr):
     Unary expression of attribute.
     """
 
-    def __init__(self, uop: UnaryOp, attr: AttrConvertible):
+    def __init__(self, uop: UnaryOp, attr: AttrLike):
         self.op = uop
         self.attr = to_attr(attr)
 
@@ -205,7 +240,7 @@ class Binary(Attr):
     Binary expression of attributes..
     """
 
-    def __init__(self, bop: BinaryOp, lhs: AttrConvertible, rhs: AttrConvertible):
+    def __init__(self, bop: BinaryOp, lhs: AttrLike, rhs: AttrLike):
         self.op = bop
         self.lhs = to_attr(lhs)
         self.rhs = to_attr(rhs)
@@ -213,6 +248,7 @@ class Binary(Attr):
     eval_func: Dict[BinaryOp, Dict[ty.Tuple[Type, Type], Callable[[ty.Any, ty.Any], ty.Any]]] = {
         BinaryOp.ADD: {
             (int, int): int.__add__,
+            (tuple, tuple): tuple.__add__,
         },
         BinaryOp.SUB: {
             (int, int): int.__sub__,
@@ -268,7 +304,7 @@ class Cond(Attr):
     Condition (if-else) attribute expression.
     """
 
-    def __init__(self, pred: Attr, then_br: AttrConvertible, else_br: AttrConvertible):
+    def __init__(self, pred: Attr, then_br: AttrLike, else_br: AttrLike):
         self.pred = pred
         self.then_br = to_attr(then_br)
         self.else_br = to_attr(else_br)
@@ -313,54 +349,72 @@ class Variadic(Attr):
     A tuple that can accept any number of fields, each with similar pattern.
     """
 
-    def __init__(self, attr: AttrConvertible, index: Optional[Symbol] = None,
-                 length: Optional[AttrConvertible] = None):
+    def __init__(self, field: AttrLike, index: Optional[Symbol] = None,
+                 length: Optional[AttrLike] = None):
         """
         Constructor.
 
-        :param attr: Pattern of tuple fields.
+        :param field: Pattern of tuple fields.
         :param index: Symbol mapping to index of tuple field.
         :param length: Attribute expression specifying the length of tuple. In source pattern, it
             will be checked if provided. In target pattern, it is required.
         """
-        self.attr = to_attr(attr)
+        self.field = to_attr(field)
         self.index = index
         self.len = to_attr(length)
 
 
-class Sum(Attr):
+class Reduce(Attr):
     """
-    Summation of attribute values in a given range
+    Reduce attribute values.
     """
 
-    def __init__(self, elem: AttrConvertible, index: Symbol, length: AttrConvertible):
+    reduce_ops = {
+        BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR
+    }
+
+    def __init__(self, op: BinaryOp, init: AttrLike, elem: AttrLike, index: Symbol,
+                 length: AttrLike):
         """
         Constructor.
 
-        :param elem: Pattern of summed elements.
-        :param index:  Symbol mapping to iteration of summation.
-        :param length: Attribute expression specifying the length of summation.
+        :param op: Binary operator used for reduction.
+        :param init: Initial value of reduction.
+        :param elem: Pattern of reduced elements.
+        :param index:  Symbol mapping to iteration of reduction.
+        :param length: Length of reduction.
         """
+        if op not in self.reduce_ops:
+            raise ValueError('Operator \'{}\' cannot be used for reduction.')
+        self.op = op
+        self.init = to_attr(init)
         self.elem = to_attr(elem)
         self.index = index
         self.len = to_attr(length)
 
 
 ArgType = TypeVar('ArgType')
+RetType = TypeVar('RetType')
 
 
-class AttrVisitor(Generic[ArgType]):
-    def visit(self, attr: Attr, arg: ArgType) -> ty.Any:
+class AttrVisitor(Generic[ArgType, RetType]):
+    def visit(self, attr: Attr, arg: ArgType) -> RetType:
         if isinstance(attr, Any):
             return self.visit_any(attr, arg)
         elif isinstance(attr, Const):
             return self.visit_const(attr, arg)
         elif isinstance(attr, GetAttr):
             return self.visit_getattr(attr, arg)
+        elif isinstance(attr, Range):
+            return self.visit_range(attr, arg)
         elif isinstance(attr, Tuple):
             return self.visit_tuple(attr, arg)
         elif isinstance(attr, GetItem):
             return self.visit_getitem(attr, arg)
+        elif isinstance(attr, Slice):
+            return self.visit_slice(attr, arg)
+        elif isinstance(attr, GetSlice):
+            return self.visit_getslice(attr, arg)
         elif isinstance(attr, Binary):
             return self.visit_binary(attr, arg)
         elif isinstance(attr, Cond):
@@ -369,45 +423,62 @@ class AttrVisitor(Generic[ArgType]):
             return self.visit_symbol(attr, arg)
         elif isinstance(attr, Variadic):
             return self.visit_variadic(attr, arg)
-        elif isinstance(attr, Sum):
-            return self.visit_sum(attr, arg)
+        elif isinstance(attr, Reduce):
+            return self.visit_reduce(attr, arg)
         else:
             raise RuntimeError('Unknown attribute type.')
 
-    def visit_any(self, a: Any, arg: ArgType) -> ty.Any:
+    def visit_any(self, a: Any, arg: ArgType):
         pass
 
-    def visit_const(self, const: Const, arg: ArgType) -> ty.Any:
+    def visit_const(self, const: Const, arg: ArgType):
         pass
 
-    def visit_getattr(self, get_attr: GetAttr, arg: ArgType) -> ty.Any:
+    def visit_getattr(self, get_attr: GetAttr, arg: ArgType):
         pass
 
-    def visit_tuple(self, tup_attr: Tuple, arg: ArgType) -> ty.Any:
+    def visit_range(self, ran: Range, arg: ArgType):
+        self.visit(ran.start, arg)
+        self.visit(ran.stop, arg)
+        self.visit(ran.step, arg)
+
+    def visit_tuple(self, tup_attr: Tuple, arg: ArgType):
         for f in tup_attr.fields:
             self.visit(f, arg)
 
-    def visit_getitem(self, getitem: GetItem, arg: ArgType) -> ty.Any:
-        self.visit(getitem.seq, arg)
+    def visit_getitem(self, getitem: GetItem, arg: ArgType):
+        self.visit(getitem.tup, arg)
         self.visit(getitem.index, arg)
 
-    def visit_unary(self, unary: Unary, arg: ArgType) -> ty.Any:
+    def visit_slice(self, slc: Slice, arg: ArgType):
+        self.visit(slc.start, arg)
+        self.visit(slc.stop, arg)
+        self.visit(slc.step, arg)
+
+    def visit_getslice(self, getslice: GetSlice, arg: ArgType):
+        self.visit(getslice.tup, arg)
+        self.visit(getslice.slc, arg)
+
+    def visit_unary(self, unary: Unary, arg: ArgType):
         self.visit(unary.attr, arg)
 
-    def visit_binary(self, binary: Binary, arg: ArgType) -> ty.Any:
+    def visit_binary(self, binary: Binary, arg: ArgType):
         self.visit(binary.lhs, arg)
         self.visit(binary.rhs, arg)
 
-    def visit_cond(self, cond: Cond, arg: ArgType) -> ty.Any:
+    def visit_cond(self, cond: Cond, arg: ArgType):
         self.visit(cond.pred, arg)
         self.visit(cond.then_br, arg)
         self.visit(cond.else_br, arg)
 
-    def visit_symbol(self, sym: Symbol, arg: ArgType) -> ty.Any:
+    def visit_symbol(self, sym: Symbol, arg: ArgType):
         pass
 
-    def visit_variadic(self, var: Variadic, arg: ArgType) -> ty.Any:
+    def visit_variadic(self, var: Variadic, arg: ArgType):
         pass
 
-    def visit_sum(self, s: Sum, arg: ArgType) -> ty.Any:
-        pass
+    def visit_reduce(self, red: Reduce, arg: ArgType):
+        self.visit(red.elem, arg)
+        self.visit(red.init, arg)
+        self.visit(red.index, arg)
+        self.visit(red.len, arg)

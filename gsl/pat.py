@@ -171,7 +171,7 @@ def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
     return filtered
 
 
-ConstValueType = Union[int, float, list, np.ndarray]
+ConstValueType = Union[int, float, list, np.ndarray, attr.Attr]
 
 
 class Const(Pattern):
