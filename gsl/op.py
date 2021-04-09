@@ -2,25 +2,30 @@ from typing import Optional, Union, Tuple
 
 from . import pat
 from .attr import Attr
-from .pat import PatternLike
+from .pat import Call, PatternLike
 
 
-class Abs(pat.Call):
+class Abs(Call):
     def __init__(self, data: PatternLike):
         super().__init__('abs', data)
 
 
-class Exp(pat.Call):
+class Exp(Call):
     def __init__(self, data: PatternLike):
         super().__init__('exp', data)
 
 
-class Sqrt(pat.Call):
+class Sqrt(Call):
     def __init__(self, data: PatternLike):
         super().__init__('sqrt', data)
 
 
-class Zeros(pat.Call):
+class Maximum(Call):
+    def __init__(self, lhs: PatternLike, rhs: PatternLike):
+        super().__init__('maximum', lhs, rhs)
+
+
+class Zeros(Call):
     def __init__(self, shape: Union[tuple, Attr, None] = None,
                  dtype: Union[str, Attr, None] = None):
         super().__init__('zeros', **pat.filter_attrs({
@@ -28,7 +33,7 @@ class Zeros(pat.Call):
         }))
 
 
-class Ones(pat.Call):
+class Ones(Call):
     def __init__(self, shape: Union[tuple, Attr, None] = None,
                  dtype: Union[str, Attr, None] = None):
         super().__init__('ones', **pat.filter_attrs({
@@ -36,7 +41,7 @@ class Ones(pat.Call):
         }))
 
 
-class Concatenate(pat.Call):
+class Concatenate(Call):
     def __init__(self, data: Union[Tuple[PatternLike, ...], pat.Variadic],
                  axis: Optional[int] = None):
         if isinstance(data, pat.Variadic):
@@ -50,7 +55,7 @@ class Concatenate(pat.Call):
         }))
 
 
-class Split(pat.Call):
+class Split(Call):
     def __init__(self, data: PatternLike,
                  indices_or_sections: Union[int, tuple, Attr, None] = None,
                  axis: Union[int, Attr, None] = None):
@@ -59,7 +64,7 @@ class Split(pat.Call):
         }))
 
 
-class Reshape(pat.Call):
+class Reshape(Call):
     def __init__(self, data: PatternLike,
                  newshape: Union[tuple, Attr, None] = None):
         super().__init__('reshape', data, **pat.filter_attrs({
@@ -67,7 +72,7 @@ class Reshape(pat.Call):
         }))
 
 
-class Transpose(pat.Call):
+class Transpose(Call):
     def __init__(self, data: PatternLike,
                  axes: Union[list, Attr, None] = None):
         super().__init__('transpose', data, **pat.filter_attrs({
@@ -75,7 +80,7 @@ class Transpose(pat.Call):
         }))
 
 
-class ExpandDims(pat.Call):
+class ExpandDims(Call):
     def __init__(self, data: PatternLike,
                  axis: Union[int, Attr, None] = None,
                  num_newaxis: Union[int, Attr, None] = None):
@@ -84,7 +89,7 @@ class ExpandDims(pat.Call):
         }))
 
 
-class Squeeze(pat.Call):
+class Squeeze(Call):
     def __init__(self, data: PatternLike,
                  axis: Union[tuple, list, Attr, None] = None):
         super().__init__('squeeze', data, **pat.filter_attrs({
@@ -92,7 +97,7 @@ class Squeeze(pat.Call):
         }))
 
 
-class Cast(pat.Call):
+class Cast(Call):
     def __init__(self, data: PatternLike,
                  dtype: Union[str, Attr, None] = None):
         super().__init__('cast', data, **pat.filter_attrs({
@@ -100,7 +105,7 @@ class Cast(pat.Call):
         }))
 
 
-class Sum(pat.Call):
+class Sum(Call):
     def __init__(self, data: PatternLike,
                  axis: Union[int, tuple, Attr, None] = None,
                  keepdims: Union[bool, Attr, None] = None,
@@ -110,7 +115,7 @@ class Sum(pat.Call):
         }))
 
 
-class Mean(pat.Call):
+class Mean(Call):
     def __init__(self, data: PatternLike,
                  axis: Union[int, tuple, Attr, None] = None,
                  keepdims: Union[bool, Attr, None] = None,
@@ -120,7 +125,10 @@ class Mean(pat.Call):
         }))
 
 
-class MatrixSetDiag(pat.Call):
+
+
+
+class MatrixSetDiag(Call):
     def __init__(self, data: PatternLike,
                  diagonal: PatternLike,
                  k: Union[int, tuple, Attr, None] = None,
@@ -130,12 +138,12 @@ class MatrixSetDiag(pat.Call):
         }))
 
 
-class Dense(pat.Call):
+class Dense(Call):
     def __init__(self, data: PatternLike, weight: PatternLike):
         super().__init__('nn.dense', data, weight)
 
 
-class Conv2D(pat.Call):
+class Conv2D(Call):
     def __init__(self, data: PatternLike,
                  weight: PatternLike,
                  strides: Union[tuple, Attr, None] = None,
@@ -147,7 +155,7 @@ class Conv2D(pat.Call):
         }))
 
 
-class BatchNorm(pat.Call):
+class BatchNorm(Call):
     def __init__(self, data: PatternLike,
                  gamma: PatternLike,
                  beta: PatternLike,
@@ -164,7 +172,7 @@ class BatchNorm(pat.Call):
                          }))
 
 
-class LayerNorm(pat.Call):
+class LayerNorm(Call):
     def __init__(self, data: PatternLike,
                  gamma: PatternLike,
                  beta: PatternLike,
@@ -179,7 +187,7 @@ class LayerNorm(pat.Call):
                          }))
 
 
-class GroupNorm(pat.Call):
+class GroupNorm(Call):
     def __init__(self, data: PatternLike,
                  gamma: PatternLike,
                  beta: PatternLike,
@@ -195,7 +203,7 @@ class GroupNorm(pat.Call):
                          }))
 
 
-class InstanceNorm(pat.Call):
+class InstanceNorm(Call):
     def __init__(self, data: PatternLike,
                  gamma: PatternLike,
                  beta: PatternLike,
@@ -210,7 +218,16 @@ class InstanceNorm(pat.Call):
                          }))
 
 
-class BiasAdd(pat.Call):
+class L2Normalize(Call):
+    def __init__(self, data: PatternLike,
+                 eps: Union[float, Attr, None] = None,
+                 axis: Union[tuple, Attr, None] = None):
+        super().__init__('nn.l2_normalize', data, **pat.filter_attrs({
+            'eps': eps, 'axis': axis,
+        }))
+
+
+class BiasAdd(Call):
     def __init__(self, data: PatternLike,
                  bias: PatternLike,
                  axis: Union[int, Attr, None] = None):
@@ -219,12 +236,12 @@ class BiasAdd(pat.Call):
         }))
 
 
-class ReLU(pat.Call):
+class ReLU(Call):
     def __init__(self, data: PatternLike):
         super().__init__('nn.relu', data)
 
 
-class Pad(pat.Call):
+class Pad(Call):
     def __init__(self, data: PatternLike,
                  pad_width: Union[tuple, Attr, None] = None,
                  pad_value: Union[float, Attr, None] = None,
@@ -234,6 +251,6 @@ class Pad(pat.Call):
         }))
 
 
-class BatchMatmul(pat.Call):
+class BatchMatmul(Call):
     def __init__(self, x: PatternLike, y: PatternLike):
         super().__init__('nn.batch_matmul', x, y)

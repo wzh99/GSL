@@ -352,11 +352,40 @@ class LowerInstanceNorm(SubstTest):
         return Subst(inst_norm, center)
 
 
+class LowerL2Norm(SubstTest):
+    def __init__(self):
+        super().__init__()
+
+        self.x = dfp.wildcard()
+        self.l2 = dfp.is_op('nn.l2_normalize')(self.x)
+        self.pattern = self.l2
+
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        return relay.nn.l2_normalize(x, 1e-5)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyInference()
+
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+        x = node_map[self.x]
+        l2 = node_map[self.l2]
+        return x / relay.sqrt(relay.maximum(relay.sum(x * x, l2.attrs['axis'], keepdims=True),
+                                            relay.const(l2.attrs['eps'])))
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        l2 = op.L2Normalize(x)
+        result = x / op.Sqrt(op.Maximum(op.Sum(x * x, l2.axis, keepdims=True), l2.eps))
+        return Subst(l2, result)
+
+
 if __name__ == '__main__':
     for cls in [
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,
-        LowerInstanceNorm,
+        # LowerInstanceNorm,
+        # LowerL2Norm,
     ]:
         cls().run()

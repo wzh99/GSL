@@ -1,8 +1,10 @@
-from typing import List, Dict, Callable, Union, Any, Optional, Generic, TypeVar
+from functools import reduce
+from typing import List, Dict, Callable, Union, Any, Optional, Generic, TypeVar, Set
 
 import numpy as np
 
 from . import attr, spec
+from .attr import Attr, Symbol
 from .util import default_font_name
 
 
@@ -14,11 +16,11 @@ class Pattern:
     NOT_IN_SRC = -1
 
     def __init__(self):
-        self.attrs: Dict[str, attr.Attr] = {}
         self.succ: List[Pattern] = []
         self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
         self.is_template = False
+        self.free_sym: Set[Symbol] = set()
 
     @property
     def pred(self) -> List['Pattern']:
@@ -68,6 +70,25 @@ class Pattern:
 
     def has_attr(self, name: str) -> bool:
         return name in self.avail_attrs
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return []
+
+    @property
+    def bounded_sym(self) -> List[Symbol]:
+        return []
+
+    @property
+    def has_free_sym(self):
+        return len(self.free_sym) != 0
+
+    def _update_free_sym(self):
+        self.free_sym = reduce(
+            set.union, map(lambda p: p.free_sym, self.pred), set()
+        ).union(reduce(
+            set.union, map(lambda a: a.free_sym, self.attr_expr), set()
+        )).difference(self.bounded_sym)
 
     def __getitem__(self, *item):
         return GetItem(self, item[0])
@@ -151,6 +172,7 @@ class Variable(Pattern):
         super().__init__()
 
         # Check attributes for variable
+        self.attrs: Dict[str, Attr] = {}
         raw_attrs = filter_attrs(dict(zip(
             self.tensor_attrs,
             [shape, dtype, ndim]
@@ -158,9 +180,15 @@ class Variable(Pattern):
         for n, a in raw_attrs.items():
             self.attrs[n] = attr.to_attr(a)
 
+        self._update_free_sym()
+
     @property
     def avail_attrs(self) -> List[str]:
         return self.tensor_attrs
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return list(self.attrs.values())
 
 
 def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
@@ -193,7 +221,7 @@ class Const(Pattern):
         super().__init__()
         if value is None:
             self.value = None
-        elif isinstance(value, (attr.Attr, np.ndarray)):
+        elif isinstance(value, (Attr, np.ndarray)):
             self.value = value
         elif isinstance(value, (int, float, list)):
             self.value = np.array(value)
@@ -201,10 +229,15 @@ class Const(Pattern):
             raise TypeError(
                 'Cannot create constant node from value of type {}.'.format(value.__class__)
             )
+        self._update_free_sym()
 
     @property
     def avail_attrs(self) -> List[str]:
         return self.tensor_attrs
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return [self.value] if isinstance(self.value, Attr) else []
 
 
 PatternLike = Union[Pattern, ConstValueType]
@@ -273,9 +306,7 @@ class Call(Pattern):
                 )
 
         # Convert raw attribute values to attribute nodes if necessary
-        self.attrs.update(
-            dict([(name, attr.to_attr(val)) for name, val in raw_attr.items()])
-        )
+        self.attrs = dict([(name, attr.to_attr(val)) for name, val in raw_attr.items()])
 
         # Check if specified attributes really exists in op
         if isinstance(op, ConcreteOp):
@@ -286,6 +317,8 @@ class Call(Pattern):
                         'Attribute \'{}\' not found in op \'{}\'.'.format(name, op.name)
                     )
 
+        self._update_free_sym()
+
     @property
     def pred(self):
         return self.args
@@ -293,6 +326,10 @@ class Call(Pattern):
     @property
     def avail_attrs(self) -> List[str]:
         return self.tensor_attrs
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return list(self.attrs.values())
 
     def has_attr(self, name: str) -> bool:
         if name in self.avail_attrs:
@@ -321,6 +358,7 @@ class Tuple(Pattern):
     def __init__(self, *raw_fields: PatternLike):
         super().__init__()
         self.fields = [to_pat(f) for f in raw_fields]
+        self._update_free_sym()
 
     @property
     def pred(self):
@@ -332,6 +370,7 @@ class GetItem(Pattern):
         super().__init__()
         self.tup = tup
         self.idx = attr.to_attr(index)
+        self._update_free_sym()
 
     @property
     def pred(self):
@@ -340,6 +379,10 @@ class GetItem(Pattern):
     @property
     def avail_attrs(self) -> List[str]:
         return self.tensor_attrs + ['index']
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return [self.idx]
 
 
 class Cond(Pattern):
@@ -354,10 +397,15 @@ class Cond(Pattern):
         self.predicate = predicate
         self.then_pat = to_pat(then_pat)
         self.else_pat = to_pat(else_pat)
+        self._update_free_sym()
 
     @property
     def pred(self) -> List[Pattern]:
         return [self.then_pat, self.else_pat]
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return [self.predicate]
 
 
 class Variadic(Pattern):
@@ -444,13 +492,23 @@ class Variadic(Pattern):
         self.field_inst: List[Pattern] = []
         self.tpl_inst: List[Dict[Pattern, Pattern]] = []
 
+        self._update_free_sym()
+
     @property
     def pred(self):
-        return self.field_inst
+        return [self.field]
 
     @property
     def avail_attrs(self) -> List[str]:
         return ['length']
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return [] if self.len is None else [self.len]
+
+    @property
+    def bounded_sym(self) -> List[Symbol]:
+        return [] if self.index is None else [self.index]
 
     def __call__(self, tpl: Pattern, index: attr.AttrLike):
         if tpl not in self.templates:
@@ -508,15 +566,20 @@ class Variadic(Pattern):
 
 
 class GetInst(Pattern):
-    def __init__(self, var: Variadic, tpl: Pattern, index: attr.Attr):
+    def __init__(self, var: Variadic, tpl: Pattern, index: attr.AttrLike):
         super().__init__()
         self.var = var
         self.tpl = tpl
-        self.idx = index
+        self.idx = attr.to_attr(index)
+        self._update_free_sym()
 
     @property
     def avail_attrs(self) -> List[str]:
         return self.tpl.avail_attrs
+
+    @property
+    def attr_expr(self) -> List[Attr]:
+        return [self.idx]
 
 
 ArgType = TypeVar('ArgType')

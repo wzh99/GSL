@@ -1,6 +1,7 @@
 import typing as ty
 from enum import Enum
-from typing import Union, Dict, Type, Callable, Generic, TypeVar, Optional
+from functools import reduce
+from typing import Union, Dict, Type, Callable, Generic, TypeVar, Optional, List, Set
 
 AttrPrimType = Union[bool, int, float, str]
 AttrValueType = Union[AttrPrimType, tuple, list]
@@ -11,6 +12,29 @@ class Attr:
     AST for attribute expression.
     """
     value_class = (bool, int, float, str)
+
+    def __init__(self):
+        self.free_sym: Set[Symbol] = set()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return []
+
+    @property
+    def bounded_sym(self) -> List['Symbol']:
+        return []
+
+    @property
+    def has_free_sym(self):
+        return len(self.free_sym) != 0
+
+    def _update_free_sym(self):
+        self.free_sym = reduce(
+            set.union, map(lambda a: a.free_sym, self.sub_expr), set()
+        ).difference(self.bounded_sym)
+
+    def __hash__(self):
+        return hash(id(self))
 
     def __getitem__(self, index: 'AttrLike'):
         if isinstance(index, Slice):
@@ -107,6 +131,7 @@ class Const(Attr):
     """
 
     def __init__(self, value: AttrPrimType):
+        super().__init__()
         self.value = value
 
 
@@ -116,9 +141,11 @@ class GetAttr(Attr):
     """
 
     def __init__(self, pat, name: str):
+        super().__init__()
         from .pat import Pattern
         self.pat: Pattern = pat
         self.name = name
+        self.free_sym.update(self.pat.free_sym)
 
 
 class Range(Attr):
@@ -127,9 +154,15 @@ class Range(Attr):
     """
 
     def __init__(self, stop: AttrLike, start: AttrLike = None, step: AttrLike = None):
+        super().__init__()
         self.stop = to_attr(stop)
         self.start = to_attr(start)
         self.step = to_attr(step)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.stop, self.start, self.step]
 
 
 class Tuple(Attr):
@@ -138,7 +171,13 @@ class Tuple(Attr):
     """
 
     def __init__(self, *fields):
+        super().__init__()
         self.fields = [to_attr(e) for e in fields]
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return self.fields
 
 
 class TupleLen(Attr):
@@ -147,7 +186,13 @@ class TupleLen(Attr):
     """
 
     def __init__(self, tup: Attr):
+        super().__init__()
         self.tup = tup
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup]
 
 
 class GetItem(Attr):
@@ -156,8 +201,14 @@ class GetItem(Attr):
     """
 
     def __init__(self, tup: Attr, index: AttrLike):
+        super().__init__()
         self.tup = tup
         self.index = to_attr(index)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup, self.index]
 
 
 class Slice(Attr):
@@ -166,9 +217,15 @@ class Slice(Attr):
     """
 
     def __init__(self, start: AttrLike = None, stop: AttrLike = None, step: AttrLike = None):
+        super().__init__()
         self.start = to_attr(start)
         self.stop = to_attr(stop)
         self.step = to_attr(step)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.start, self.stop, self.step]
 
 
 class GetSlice(Attr):
@@ -177,8 +234,14 @@ class GetSlice(Attr):
     """
 
     def __init__(self, tup: Attr, slc: Slice):
+        super().__init__()
         self.tup = tup
         self.slc = slc
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup, self.slc]
 
 
 def to_attr(val: AttrLike) -> Attr:
@@ -213,8 +276,14 @@ class Unary(Attr):
     """
 
     def __init__(self, uop: UnaryOp, attr: AttrLike):
+        super().__init__()
         self.op = uop
         self.attr = to_attr(attr)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.attr]
 
     eval_funcs: Dict[UnaryOp, Dict[Type, Callable[[ty.Any], ty.Any]]] = {
         UnaryOp.NEG: {
@@ -250,9 +319,15 @@ class Binary(Attr):
     """
 
     def __init__(self, bop: BinaryOp, lhs: AttrLike, rhs: AttrLike):
+        super().__init__()
         self.op = bop
         self.lhs = to_attr(lhs)
         self.rhs = to_attr(rhs)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.lhs, self.rhs]
 
     eval_func: Dict[BinaryOp, Dict[ty.Tuple[Type, Type], Callable[[ty.Any, ty.Any], ty.Any]]] = {
         BinaryOp.ADD: {
@@ -314,16 +389,25 @@ class Cond(Attr):
     """
 
     def __init__(self, pred: Attr, then_br: AttrLike, else_br: AttrLike):
+        super().__init__()
         self.pred = pred
         self.then_br = to_attr(then_br)
         self.else_br = to_attr(else_br)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.pred, self.then_br, self.else_br]
 
 
 class Symbol(Attr):
     """
     A language symbol which can be mapped to attribute value.
     """
-    pass
+
+    def __init__(self):
+        super().__init__()
+        self.free_sym = {self}
 
 
 class Env:
@@ -366,18 +450,38 @@ class Variadic(Attr):
         :param length: Attribute expression specifying the length of tuple. In source pattern, it
             will be checked if provided. In target pattern, it is required.
         """
+        super().__init__()
         self.index = Symbol()
         self.field = to_attr(func(self.index))
         self.len = to_attr(length)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.field, self.len]
+
+    @property
+    def bounded_sym(self) -> List['Symbol']:
+        return [self.index]
 
 
 class Map(Attr):
     """Map all elements in a tuple to new values"""
 
     def __init__(self, tup: AttrLike, func: Callable[[Symbol], AttrLike]):
+        super().__init__()
         self.tup = tup
         self.sym = Symbol()
         self.body = to_attr(func(self.sym))
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup, self.body]
+
+    @property
+    def bounded_sym(self) -> List['Symbol']:
+        return [self.sym]
 
 
 reduce_ops = {
@@ -405,11 +509,21 @@ class ReduceIndexed(Attr):
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
 
+        super().__init__()
         self.op = op
         self.init = to_attr(init)
         self.index = Symbol()
         self.elem = to_attr(func(self.index))
         self.len = to_attr(length)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.init, self.elem, self.len]
+
+    @property
+    def bounded_sym(self) -> List['Symbol']:
+        return [self.index]
 
 
 class ReduceTuple(Attr):
@@ -423,9 +537,15 @@ class ReduceTuple(Attr):
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
 
+        super().__init__()
         self.op = op
         self.tup = to_attr(tup)
         self.init = to_attr(init)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup, self.init]
 
 
 ArgType = TypeVar('ArgType')

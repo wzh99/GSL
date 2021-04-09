@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from tvm import relay
 
@@ -8,15 +8,24 @@ from .pat import Pattern
 
 PatExprMap = Dict[pat.Pattern, relay.Expr]
 ExprTypeMap = Dict[relay.Expr, relay.Type]
+EvalHistory = Dict[Attr, Any]
 
 
 class AttrEvaluator(attr.AttrVisitor[Env, Any]):
-    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
+    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap,
+                 eval_his: Optional[EvalHistory] = None):
         self.pat_to_expr = pat_to_expr
         self.ty_map = ty_map
+        self.eval_his = eval_his
 
     def visit(self, a: Attr, env: Env) -> Any:
-        return util.cvt_ir_value(super().visit(a, env))
+        if (self.eval_his is not None) and (not a.has_free_sym) and (a in self.eval_his):
+            return self.eval_his[a]
+        else:
+            val = util.cvt_ir_value(super().visit(a, env))
+            if (self.eval_his is not None) and (not a.has_free_sym):
+                self.eval_his[a] = val
+            return val
 
     def visit_any(self, a: attr.Any, env: Env):
         return None
@@ -181,7 +190,8 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return func_map[ty_tup](prev, elem)
 
 
-def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, env: Env) \
+def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, env: Env,
+                  eval_his: Optional[EvalHistory] = None) \
         -> pat.Pattern:
-    idx = AttrEvaluator(pat_to_expr, ty_map).visit(get_inst.idx, env)
+    idx = AttrEvaluator(pat_to_expr, ty_map, eval_his).visit(get_inst.idx, env)
     return get_inst.var.get_inst(idx, get_inst.tpl)

@@ -5,7 +5,7 @@ from tvm import relay
 
 from . import pat, spec, util
 from .attr import Attr, Env
-from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
+from .eval import PatExprMap, ExprTypeMap, EvalHistory, AttrEvaluator, eval_get_inst
 from .match import Matcher
 from .pat import Pattern, PatternVisitor
 
@@ -69,7 +69,8 @@ class ExprRewriter:
                 # noinspection PyTypeChecker
                 tgt_expr = self.build_variadic(self.src_outs[0], self.tgt_outs[0], pat_to_expr)
             else:
-                tgt_expr = [_RelayBuilder(pat_to_expr, self.ty_map).visit(tgt, Env())
+                eval_his: EvalHistory = {}
+                tgt_expr = [_RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(tgt, Env())
                             for tgt in self.tgt_outs]
             self.history.update(tgt_expr)
             expr_map = dict(zip(src_matched, tgt_expr))
@@ -273,10 +274,11 @@ class ExprRewriter:
                        pat_to_expr: PatExprMap) -> List[relay.Expr]:
         length = len(src_var)
         tgt_outs: List[relay.Expr] = []
+        eval_his: EvalHistory = {}
         for i in range(length):
             env = Env() if tgt_var.index is None else Env(symbol=tgt_var.index, value=i)
             inst = tgt_var.instantiate()
-            tgt_outs.append(_RelayBuilder(pat_to_expr, self.ty_map).visit(inst, env))
+            tgt_outs.append(_RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(inst, env))
         return tgt_outs
 
     @staticmethod
@@ -341,10 +343,11 @@ class _SuccListBuilder(relay.ExprVisitor):
 
 
 class _RelayBuilder(PatternVisitor[Env]):
-    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
+    def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, eval_his: EvalHistory):
         super().__init__()
         self.pat_to_expr = pat_to_expr
         self.ty_map = ty_map
+        self.eval_his = eval_his
 
     def visit(self, p: Pattern, env: Env) -> relay.Expr:
         if p in self.pat_to_expr:
@@ -362,14 +365,16 @@ class _RelayBuilder(PatternVisitor[Env]):
         if isinstance(const.value, np.ndarray):
             value = const.value
         elif isinstance(const.value, Attr):
-            value = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(const.value, env)
+            value = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
+                .visit(const.value, env)
         else:
             raise RuntimeError('Unreachable.')
         return relay.const(value)
 
     def visit_call(self, call: pat.Call, env: Env) -> relay.Expr:
         args = [self.visit(a, env) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.pat_to_expr, self.ty_map).visit(attr, env))
+        attrs = dict([(name, AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his).
+                       visit(attr, env))
                       for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op, env)
         api = spec.get_api(op_name)
@@ -394,16 +399,19 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: pat.GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
-        idx = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(getitem.idx, env)
+        idx = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
+            .visit(getitem.idx, env)
         return tup[idx]
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> relay.Expr:
-        pred = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(cond.predicate, env)
+        pred = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
+            .visit(cond.predicate, env)
         return self.visit(cond.then_pat, env) if pred else self.visit(cond.else_pat, env)
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
-        length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(var.len, env)
+        length = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
+            .visit(var.len, env)
 
         # Create fields
         fields: List[relay.Expr] = []
@@ -417,7 +425,7 @@ class _RelayBuilder(PatternVisitor[Env]):
         return relay.Tuple(fields)
 
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> relay.Expr:
-        inst = eval_get_inst(get_inst, self.pat_to_expr, self.ty_map, env)
+        inst = eval_get_inst(get_inst, self.pat_to_expr, self.ty_map, env, self.eval_his)
         return self.pat_to_expr[inst]
 
 
@@ -498,7 +506,8 @@ class _SinglePatRewriter(relay.ExprMutator):
         pat_to_expr: PatExprMap = {}
         matcher = Matcher(pat_to_expr, self.ty_map)
         if matcher.match(self.src, new_expr, Env()):
-            new_expr = _RelayBuilder(pat_to_expr, self.ty_map).visit(self.tgt, Env())
+            eval_his: EvalHistory = {}
+            new_expr = _RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(self.tgt, Env())
 
         # Map to new expression
         self.memo_map[expr] = new_expr

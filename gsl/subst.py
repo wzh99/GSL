@@ -163,9 +163,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Add index to environment
-        new_env = env
-        if var.index is not None:
-            new_env = env + (var.index, True)
+        new_env = env if var.index is None else env + (var.index, True)
 
         # Check first and template list
         for tpl in var.templates:
