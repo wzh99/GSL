@@ -147,8 +147,7 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         # Evaluate fields
         fields = []
         for i in range(length):
-            new_env = env if var.len is None else env + (var.index, i)
-            fields.append(self.visit(var.field, new_env))
+            fields.append(self.visit(var.field, env + (var.index, i)))
 
         return fields
 

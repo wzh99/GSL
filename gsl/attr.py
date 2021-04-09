@@ -358,18 +358,16 @@ class Variadic(Attr):
     A tuple that can accept any number of fields, each with similar pattern.
     """
 
-    def __init__(self, field: AttrLike, index: Optional[Symbol] = None,
-                 length: Optional[AttrLike] = None):
+    def __init__(self, func: Callable[[Symbol], AttrLike], length: Optional[AttrLike] = None):
         """
         Constructor.
 
-        :param field: Pattern of tuple fields.
-        :param index: Symbol mapping to index of tuple field.
+        :param func: How index symbol maps to each tuple field
         :param length: Attribute expression specifying the length of tuple. In source pattern, it
             will be checked if provided. In target pattern, it is required.
         """
-        self.field = to_attr(field)
-        self.index = index
+        self.index = Symbol()
+        self.field = to_attr(func(self.index))
         self.len = to_attr(length)
 
 
@@ -392,15 +390,14 @@ class ReduceIndexed(Attr):
     Reduce indexed attribute values with a certain length.
     """
 
-    def __init__(self, op: BinaryOp, init: AttrLike, elem: AttrLike, index: Symbol,
+    def __init__(self, op: BinaryOp, init: AttrLike, func: Callable[[Symbol], AttrLike],
                  length: AttrLike):
         """
         Constructor.
 
         :param op: Binary operator used for reduction.
         :param init: Initial value of reduction.
-        :param elem: Pattern of reduced elements.
-        :param index:  Symbol mapping to iteration of reduction.
+        :param func: How index is mapped to each element.
         :param length: Length of reduction.
         """
         if op not in reduce_ops:
@@ -410,8 +407,8 @@ class ReduceIndexed(Attr):
 
         self.op = op
         self.init = to_attr(init)
-        self.elem = to_attr(elem)
-        self.index = index
+        self.index = Symbol()
+        self.elem = to_attr(func(self.index))
         self.len = to_attr(length)
 
 

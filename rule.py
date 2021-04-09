@@ -277,10 +277,8 @@ def parallel_conv_variadic():
     conv = op.Conv2D(x, concat,
                      **pat.same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
 
-    i = attr.Symbol()
-    j = attr.Symbol()
     split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
-        attr.ReduceIndexed(attr.BinaryOp.ADD, 0, src(w, j).shape[0], j, i + 1), index=i,
+        lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, 0, lambda k: src(w, k).shape[0], j + 1),
         length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
@@ -401,10 +399,8 @@ def parallel_dense_variadic():
     dense = op.Dense(x, op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i,
                                                     length=src.length),
                                        axis=0))
-    i = attr.Symbol()
-    j = attr.Symbol()
     split = op.Split(dense, axis=-1, indices_or_sections=attr.Variadic(
-        attr.ReduceIndexed(attr.BinaryOp.ADD, 0, src(w, j).shape[0], j, i + 1), index=i,
+        lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, 0, lambda k: src(w, k).shape[0], j + 1),
         length=src.length - 1))
     i = attr.Symbol()
     item = split[i]
