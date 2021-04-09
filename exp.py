@@ -287,6 +287,15 @@ class LowerGroupNorm(SubstTest):
 
 
 class LowerInstanceNorm(SubstTest):
+    def __init__(self):
+        super().__init__()
+
+        self.x = dfp.wildcard()
+        self.gamma = dfp.is_var()
+        self.beta = dfp.is_var()
+        self.norm = dfp.is_op('nn.instance_norm')(self.x, self.gamma, self.beta)
+        self.pattern = self.norm
+
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4, 4))
         gamma = relay.var('gamma', shape=(4,))
@@ -295,6 +304,29 @@ class LowerInstanceNorm(SubstTest):
 
     def get_pass(self) -> transform.Pass:
         return relay.transform.SimplifyInference()
+
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+        x = node_map[self.x]
+        ndim = _ndim(x)
+        inst_norm = node_map[self.norm]
+        axis = inst_norm.attrs['axis']
+        reduced_axes = tuple(range(1, axis)) + tuple(range(axis + 1, ndim))
+        mean = relay.mean(x, axis=reduced_axes, keepdims=True)
+        demean = x - mean
+        x_shape = _shape(x)
+        n_val = reduce(int.__mul__, map(lambda a: x_shape[a], reduced_axes))
+        var = relay.sum(demean * demean, axis=reduced_axes, keepdims=True) / \
+              relay.cast(relay.const(n_val), dtype=x.checked_type.dtype)
+        norm = demean / relay.sqrt(var + relay.const(inst_norm.attrs['epsilon']))
+        n_new = _num_new_axis(axis, ndim)
+        gamma = node_map[self.gamma]
+        beta = node_map[self.beta]
+        if n_new > 0:
+            gamma = relay.expand_dims(gamma, 1, num_newaxis=n_new)
+            beta = relay.expand_dims(beta, 1, num_newaxis=n_new)
+        scale = norm * gamma if inst_norm.attrs['scale'] else norm
+        center = scale + beta if inst_norm.attrs['center'] else scale
+        return center
 
     def define_gsl(self) -> Optional[Subst]:
         x = pat.Wildcard()
@@ -307,9 +339,7 @@ class LowerInstanceNorm(SubstTest):
         reduced_axes = attr.Range(start=1, stop=axis) + attr.Range(start=axis + 1, stop=x.ndim)
         mean = op.Mean(x, axis=reduced_axes, keepdims=True)
         demean = x - mean
-        i = attr.Symbol()
-        n_val = attr.Reduce(attr.BinaryOp.MUL, 1, x.shape[reduced_axes[i]], i,
-                            attr.TupleLen(reduced_axes))
+        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, attr.Map(reduced_axes, lambda a: x.shape[a]), 1)
         var = op.Sum(demean * demean, axis=reduced_axes, keepdims=True) / \
               op.Cast(n_val, dtype=x.dtype)
         norm = demean / op.Sqrt(var + inst_norm.epsilon)

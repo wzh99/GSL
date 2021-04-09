@@ -152,7 +152,11 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 
         return fields
 
-    def visit_reduce(self, red: attr.Reduce, env: Env):
+    def visit_map(self, m: attr.Map, env: Env):
+        tup = self.visit(m.tup, env)
+        return tuple(map(lambda e: self.visit(m.body, env + (m.sym, e)), tup))
+
+    def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
         length = self.visit(red.len, env)
         result = self.visit(red.init, env)
         for i in range(length):

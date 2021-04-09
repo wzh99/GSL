@@ -373,14 +373,24 @@ class Variadic(Attr):
         self.len = to_attr(length)
 
 
-class Reduce(Attr):
-    """
-    Reduce attribute values in a range.
-    """
+class Map(Attr):
+    """Map all elements in a tuple to new values"""
 
-    reduce_ops = {
-        BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR, BinaryOp.MAX, BinaryOp.MIN,
-    }
+    def __init__(self, tup: AttrLike, func: Callable[[Symbol], AttrLike]):
+        self.tup = tup
+        self.sym = Symbol()
+        self.body = to_attr(func(self.sym))
+
+
+reduce_ops = {
+    BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR, BinaryOp.MAX, BinaryOp.MIN,
+}
+
+
+class ReduceIndexed(Attr):
+    """
+    Reduce indexed attribute values with a certain length.
+    """
 
     def __init__(self, op: BinaryOp, init: AttrLike, elem: AttrLike, index: Symbol,
                  length: AttrLike):
@@ -393,7 +403,7 @@ class Reduce(Attr):
         :param index:  Symbol mapping to iteration of reduction.
         :param length: Length of reduction.
         """
-        if op not in self.reduce_ops:
+        if op not in reduce_ops:
             raise ValueError(
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
@@ -407,11 +417,11 @@ class Reduce(Attr):
 
 class ReduceTuple(Attr):
     """
-    Reduce values in a tuple
+    Reduce values in a tuple.
     """
 
     def __init__(self, op: BinaryOp, tup: AttrLike, init: AttrLike):
-        if op not in Reduce.reduce_ops:
+        if op not in reduce_ops:
             raise ValueError(
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
@@ -453,8 +463,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
             return self.visit_symbol(attr, arg)
         elif isinstance(attr, Variadic):
             return self.visit_variadic(attr, arg)
-        elif isinstance(attr, Reduce):
-            return self.visit_reduce(attr, arg)
+        elif isinstance(attr, Map):
+            return self.visit_map(attr, arg)
+        elif isinstance(attr, ReduceIndexed):
+            return self.visit_reduce_indexed(attr, arg)
         elif isinstance(attr, ReduceTuple):
             return self.visit_reduce_tuple(attr, arg)
         else:
@@ -512,7 +524,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
     def visit_variadic(self, var: Variadic, arg: ArgType):
         pass
 
-    def visit_reduce(self, red: Reduce, arg: ArgType):
+    def visit_map(self, m: Map, arg: ArgType):
+        pass
+
+    def visit_reduce_indexed(self, red: ReduceIndexed, arg: ArgType):
         pass
 
     def visit_reduce_tuple(self, red: ReduceTuple, arg: ArgType):

@@ -208,7 +208,7 @@ class _SrcAttrChecker(AttrVisitor[Env, None]):
         new_env = env if var.index is None else env + (var.index, True)
         self.visit(var.field, new_env)
 
-    def visit_reduce(self, red: attr.Reduce, env: Env):
+    def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
         self.visit(red.len, env)
         self.visit(red.init, env)
         new_env = env + (red.index, True)
@@ -317,7 +317,7 @@ class _TgtAttrChecker(AttrVisitor[Env, None]):
         new_env = env if var.index is None else env + (var.index, True)
         self.visit(var.field, new_env)
 
-    def visit_reduce(self, red: attr.Reduce, env: Env):
+    def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
         self.visit(red.len, env)
         self.visit(red.init, env)
         new_env = env + (red.index, True)
