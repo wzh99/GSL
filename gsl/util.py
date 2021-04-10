@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from tvm import ir, tir, relay
+from tvm import ir, tir, relay, runtime
 
 default_font_name = ''
 
@@ -18,6 +18,8 @@ def _set_default_font_name():
 def cvt_ir_value(val) -> Any:
     if isinstance(val, (tir.IntImm, tir.FloatImm, tir.StringImm)):
         return val.value
+    elif isinstance(val, runtime.String):
+        return str(val)
     elif isinstance(val, ir.Array):
         return [cvt_ir_value(e) for e in val]
     else:
