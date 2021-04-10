@@ -38,7 +38,7 @@ class ExprRewriter:
             succ_list = self.build_succ_list(expr)
 
             # Find matched expressions with patterns
-            pat_to_expr: PatExprMap = dict()
+            pat_to_expr = PatExprMap()
             if self.is_var:  # match variadic with different procedure
                 # noinspection PyTypeChecker
                 src_var: pat.Variadic = self.src_outs[0]
@@ -123,12 +123,13 @@ class ExprRewriter:
                     continue
 
                 # Use first pattern to roughly locate the subgraph
-                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
+                rec = pat_to_expr.record()
+                matcher = Matcher(pat_to_expr, self.ty_map)
                 res = matcher.match(pattern, cur_expr, Env())
                 if not res:
                     self.history.add(cur_expr)
+                    rec.restore()
                     continue  # even first pattern is not matched, skip this expression
-                pat_to_expr.update(matcher.pat_to_expr)
                 return cur_expr
 
         return None
@@ -138,7 +139,6 @@ class ExprRewriter:
     def match_rest(self, pat_to_expr: PatExprMap, fst_matched: relay.Expr,
                    succ_list: SuccListMap) -> List[relay.Expr]:
         # Initialize stack and its operation
-        expr_matched = set()
         stack: List[Tuple[Pattern, relay.Expr]] = []
 
         # Find candidate node-expression pair where the node is connected to matched ones.
@@ -153,8 +153,10 @@ class ExprRewriter:
                 if ps.src_idx != src_idx:
                     continue  # not source or not the source pattern concerned
                 # matched expression cannot be matched again
-                cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
-                                      succ_list[expr]))
+                cand_es = list(filter(
+                    lambda ee: not (pat_to_expr.has_expr(ee) or ee in self.history),
+                    succ_list[expr]
+                ))
                 if isinstance(pattern, self.reusable_pat):
                     for es in reversed(cand_es):
                         stack.append((ps, es))
@@ -167,9 +169,6 @@ class ExprRewriter:
         for src_idx in range(1, len(self.src_outs)):
             # Get output pattern node
             src_pat = self.src_outs[src_idx]
-
-            # Collect matched expression nodes
-            expr_matched.update(pat_to_expr.values())
 
             # Push pattern-expression pair to stack
             for p, e in pat_to_expr.items():
@@ -187,13 +186,14 @@ class ExprRewriter:
                     continue
 
                 # Match pattern with expression
-                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
+                rec = pat_to_expr.record()
+                matcher = Matcher(pat_to_expr, self.ty_map)
                 res = matcher.match(src_pat, e, Env())
                 if not res:
+                    rec.restore()
                     continue
 
                 # Update matched nodes and expressions
-                pat_to_expr.update(matcher.pat_to_expr)
                 output_matched.append(e)
                 found = True
                 break
@@ -214,16 +214,17 @@ class ExprRewriter:
 
         # Find candidate pattern-expression pair
         stack: List[Tuple[Pattern, relay.Expr]] = []
-        expr_matched = set()
 
-        def add_succ(pattern: Pattern, ex: relay.Expr):
-            if ex not in succ_list:
+        def add_succ(pattern: Pattern, expression: relay.Expr):
+            if expression not in succ_list:
                 return
             if len(pattern.src_succ) == 0:
                 return
             p_succ = pattern.src_succ[0]
-            cand_es = list(filter(lambda ee: not (ee in expr_matched or ee in self.history),
-                                  succ_list[ex]))
+            cand_es = list(filter(
+                lambda ee: not (pat_to_expr.has_expr(ee) or ee in self.history),
+                succ_list[expression]
+            ))
             if isinstance(pattern, self.reusable_pat):
                 for es in reversed(cand_es):
                     stack.append((p_succ, es))
@@ -233,9 +234,6 @@ class ExprRewriter:
         # Find more matches of variadic pattern
         out_matched = [fst_match]
         while True:
-            # Collect all matched expressions
-            expr_matched.update(pat_to_expr.values())
-
             # Push pattern-expression pair to stack
             for p, e in pat_to_expr.items():
                 add_succ(p, e)
@@ -254,14 +252,15 @@ class ExprRewriter:
                 # Try matching field with expression
                 env = Env() if src_var.index is None else \
                     Env(symbol=src_var.index, value=len(out_matched))
-                matcher = Matcher(pat_to_expr.copy(), self.ty_map)
+                rec = pat_to_expr.record()
+                matcher = Matcher(pat_to_expr, self.ty_map)
                 result = matcher.match(src_var.instantiate(), e, env)
                 if not result:
+                    rec.restore()
                     src_var.rollback()
                     continue
 
                 # Add matched expression to record
-                pat_to_expr.update(matcher.pat_to_expr)
                 out_matched.append(e)
                 found = True
                 break
@@ -498,7 +497,7 @@ class _SinglePatRewriter(relay.ExprMutator):
         new_expr = super().visit(expr)
 
         # Match pattern with this expression
-        pat_to_expr: PatExprMap = {}
+        pat_to_expr = PatExprMap()
         matcher = Matcher(pat_to_expr, self.ty_map)
         if matcher.match(self.src, new_expr, Env()):
             eval_his: EvalHistory = {}

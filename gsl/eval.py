@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 
 from tvm import relay
 
@@ -6,7 +6,53 @@ from . import attr, pat, util
 from .attr import Attr, Env
 from .pat import Pattern
 
-PatExprMap = Dict[pat.Pattern, relay.Expr]
+
+class PatExprMap:
+    def __init__(self):
+        self._map: Dict[Pattern, relay.Expr] = dict()
+        self._pat: List[Pattern] = []
+        self._expr: Set[relay.Expr] = set()
+
+    def __len__(self):
+        return len(self._pat)
+
+    def __contains__(self, item: Pattern):
+        return item in self._map
+
+    def __getitem__(self, item: Pattern):
+        return self._map[item]
+
+    def __setitem__(self, key: Pattern, value: relay.Expr):
+        assert key not in self._map
+        self._map[key] = value
+        self._pat.append(key)
+        self._expr.add(value)
+
+    def items(self):
+        return self._map.items()
+
+    def has_expr(self, expr: relay.Expr):
+        return expr in self._expr
+
+    def record(self):
+        return self.MapRecord(self)
+
+    def _rollback(self, n: int):
+        assert n <= len(self._pat)
+        for p in self._pat[n:]:
+            self._expr.remove(self._map[p])
+            del self._map[p]
+        self._pat = self._pat[:n]
+
+    class MapRecord:
+        def __init__(self, m: 'PatExprMap'):
+            self._map = m
+            self._len = len(m)
+
+        def restore(self):
+            self._map._rollback(self._len)
+
+
 ExprTypeMap = Dict[relay.Expr, relay.Type]
 EvalHistory = Dict[Attr, Any]
 

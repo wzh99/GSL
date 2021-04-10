@@ -9,7 +9,6 @@ from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
 class Matcher:
     def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
         self.pat_to_expr = pat_to_expr
-        self.expr_matched = set(pat_to_expr.values())
         self.ty_map = ty_map
 
     def match(self, p: pat.Pattern, expr: relay.Expr, env: Env) -> bool:
@@ -18,7 +17,7 @@ class Matcher:
             return self.pat_to_expr[p] == expr
 
         # Reject if the expression has been matched with another node
-        if expr in self.expr_matched:
+        if self.pat_to_expr.has_expr(expr):
             return False
 
         # Try matching according to pattern node type
@@ -44,7 +43,6 @@ class Matcher:
         # Add to record if matched
         if res:
             self.pat_to_expr[p] = expr
-            self.expr_matched.add(expr)
         return res
 
     def match_var(self, var: pat.Variable, expr: relay.Expr, env: Env) -> bool:
