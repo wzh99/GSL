@@ -386,8 +386,8 @@ class CombineParallelConv2D(SubstTest):
         w1 = relay.var('w1', shape=(2, 2, 3, 3))
         w2 = relay.var('w2', shape=(2, 2, 3, 3))
         w3 = relay.var('w3', shape=(4, 2, 3, 3))
-        data = [relay.nn.relu(relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))) for w in [w1, w2, w3]]
-        return relay.concatenate(data, 1)
+        out = [relay.nn.conv2d(x, w, padding=(1, 1, 1, 1)) for w in [w1, w2, w3]]
+        return relay.concatenate(out, 1)
 
     def get_pass(self) -> transform.Pass:
         return relay.transform.CombineParallelConv2D(min_num_branches=2)
@@ -405,12 +405,81 @@ class CombineParallelConv2D(SubstTest):
         src = pat.Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
 
         i = attr.Symbol()
-        w_inst = src(w, i)
-        concat = op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
-                                axis=0)
+        wi = src(w, i)
+        concat = op.Concatenate(pat.Variadic(wi, templates=[wi], index=i, length=src.length),
+                                axis=attr.Cond(conv1.kernel_layout == 'OIHW', 0, 3))
         conv = op.Conv2D(x, concat, **pat.same_attr(conv1, attrs))
-        split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
+        out_layout = attr.Cond(conv1.out_layout == '', conv1.data_layout, conv1.out_layout)
+        split = op.Split(conv, indices_or_sections=attr.Variadic(
             lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, lambda k: src(w, k).shape[0], j + 1),
+            length=src.length - 1), axis=attr.Cond(out_layout == "NCHW", 1, 3))
+        i = attr.Symbol()
+        item = split[i]
+        tgt = pat.Variadic(item, templates=[item], index=i)
+
+        return Subst(src, tgt)
+
+
+class CombineParallelDense(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 2))
+        w1 = relay.var('w1', shape=(2, 2))
+        w2 = relay.var('w2', shape=(2, 2))
+        w3 = relay.var('w3', shape=(4, 2))
+        out = [relay.nn.dense(x, w) for w in [w1, w2, w3]]
+        return relay.concatenate(out, axis=1)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.CombineParallelDense(min_num_branches=2, to_batch=False)
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        w1 = pat.Variable()
+        dense1 = op.Dense(x, w1)
+        w = pat.Variable()
+        dense = op.Dense(x, w, out_dtype=dense1.out_dtype)
+        src = pat.Variadic(dense, templates=[dense, w], first=[dense1, w1], min_len=2)
+
+        i = attr.Symbol()
+        wi = src(w, i)
+        dense = op.Dense(x, op.Concatenate(
+            pat.Variadic(wi, templates=[wi], index=i, length=src.length), axis=0))
+        split = op.Split(dense, axis=-1, indices_or_sections=attr.Variadic(
+            lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, lambda k: src(w, k).shape[0], j + 1),
+            length=src.length - 1))
+        i = attr.Symbol()
+        item = split[i]
+        tgt = pat.Variadic(item, templates=[item], index=i)
+
+        return Subst(src, tgt)
+
+
+class CombineParallelBatchMatmul(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        y1 = relay.var('y1', shape=(2, 2, 4))
+        y2 = relay.var('y2', shape=(2, 2, 4))
+        y3 = relay.var('y3', shape=(2, 4, 4))
+        out = [relay.nn.batch_matmul(x, y) for y in [y1, y2, y3]]
+        return relay.concatenate(out, 2)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.CombineParallelBatchMatmul(2)
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        y1 = pat.Variable()
+        matmul1 = op.BatchMatmul(x, y1)
+        y = pat.Variable(shape=(y1.shape[0], None, None), dtype=y1.dtype)
+        matmul = op.BatchMatmul(x, y)
+        src = pat.Variadic(matmul, templates=[matmul, y], first=[matmul1, y1], min_len=2)
+
+        i = attr.Symbol()
+        yi = src(y, i)
+        matmul = op.BatchMatmul(x, op.Concatenate(
+            pat.Variadic(yi, templates=[yi], index=i, length=src.length), axis=1))
+        split = op.Split(matmul, axis=2, indices_or_sections=attr.Variadic(
+            lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, lambda k: src(y, k).shape[1], j + 1),
             length=src.length - 1))
         i = attr.Symbol()
         item = split[i]
@@ -426,6 +495,8 @@ if __name__ == '__main__':
         # LowerGroupNorm,
         # LowerInstanceNorm,
         # LowerL2Norm,
-        CombineParallelConv2D,
+        # CombineParallelConv2D,
+        # CombineParallelDense,
+        # CombineParallelBatchMatmul,
     ]:
         cls().run()

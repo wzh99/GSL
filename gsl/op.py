@@ -1,4 +1,4 @@
-from typing import Optional, Union, Tuple
+from typing import Union, Tuple
 
 from . import pat
 from .attr import Attr
@@ -43,7 +43,7 @@ class Ones(Call):
 
 class Concatenate(Call):
     def __init__(self, data: Union[Tuple[PatternLike, ...], pat.Variadic],
-                 axis: Optional[int] = None):
+                 axis: Union[int, Attr, None] = None):
         if isinstance(data, pat.Variadic):
             arg = data
         elif isinstance(data, tuple):
@@ -136,8 +136,13 @@ class MatrixSetDiag(Call):
 
 
 class Dense(Call):
-    def __init__(self, data: PatternLike, weight: PatternLike):
-        super().__init__('nn.dense', data, weight)
+    def __init__(self, data: PatternLike,
+                 weight: PatternLike,
+                 units: Union[int, Attr, None] = None,
+                 out_dtype: Union[str, Attr, None] = None):
+        super().__init__('nn.dense', data, weight, **pat.filter_attrs({
+            'units': units, 'out_dtype': out_dtype,
+        }))
 
 
 class Conv2D(Call):
