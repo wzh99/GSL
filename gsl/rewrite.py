@@ -442,15 +442,12 @@ class _RewriteMutator(relay.ExprMutator):
                 self.ty_map[new_expr] = self.ty_map[expr]
                 del self.ty_map[expr]
             return new_expr
-        elif expr in self.memo_map:
-            return self.memo_map[expr]
         else:
             ret = super().visit(expr)
             if expr in self.ty_map:
                 self.ty_map[ret] = self.ty_map[expr]
                 if ret is not expr:
                     del self.ty_map[expr]
-            self.memo_map[expr] = ret
             return ret
 
     def visit_call(self, call: relay.Call):
@@ -479,11 +476,9 @@ class _RewriteMutator(relay.ExprMutator):
         new_args = []
         for a in args:
             ret = self.visit(a)
+            new_args.append(ret)
             if ret != a:
-                new_args.append(ret)
                 changed = True
-            else:
-                new_args.append(a)
         return new_args, changed
 
 

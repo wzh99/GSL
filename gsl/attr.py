@@ -1,3 +1,4 @@
+import sys
 import typing as ty
 from enum import Enum
 from functools import reduce
@@ -303,7 +304,7 @@ class BinaryOp(Enum):
     MOD = '%'
     MAX = 'max'
     MIN = 'min'
-    EQ = '='
+    EQ = '=='
     NE = '!='
     LT = '<'
     LE = '<='
@@ -484,8 +485,9 @@ class Map(Attr):
         return [self.sym]
 
 
-reduce_ops = {
-    BinaryOp.ADD, BinaryOp.MUL, BinaryOp.AND, BinaryOp.OR, BinaryOp.MAX, BinaryOp.MIN,
+reduce_init: Dict[BinaryOp, ty.Any] = {
+    BinaryOp.ADD: 0, BinaryOp.MUL: 1, BinaryOp.AND: True, BinaryOp.OR: False,
+    BinaryOp.MAX: 0, BinaryOp.MIN: sys.maxsize,
 }
 
 
@@ -494,32 +496,32 @@ class ReduceIndexed(Attr):
     Reduce indexed attribute values with a certain length.
     """
 
-    def __init__(self, op: BinaryOp, init: AttrLike, func: Callable[[Symbol], AttrLike],
-                 length: AttrLike):
+    def __init__(self, op: BinaryOp, func: Callable[[Symbol], AttrLike], length: AttrLike,
+                 init: Optional[AttrLike] = None):
         """
         Constructor.
 
         :param op: Binary operator used for reduction.
-        :param init: Initial value of reduction.
         :param func: How index is mapped to each element.
         :param length: Length of reduction.
+        :param init: Initial value for reduction
         """
-        if op not in reduce_ops:
+        if op not in reduce_init:
             raise ValueError(
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
 
         super().__init__()
         self.op = op
-        self.init = to_attr(init)
         self.index = Symbol()
         self.elem = to_attr(func(self.index))
         self.len = to_attr(length)
+        self.init = to_attr(reduce_init[op] if init is None else init)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.init, self.elem, self.len]
+        return [self.elem, self.len, self.init]
 
     @property
     def bounded_sym(self) -> List['Symbol']:
@@ -531,8 +533,8 @@ class ReduceTuple(Attr):
     Reduce values in a tuple.
     """
 
-    def __init__(self, op: BinaryOp, tup: AttrLike, init: AttrLike):
-        if op not in reduce_ops:
+    def __init__(self, op: BinaryOp, tup: AttrLike, init: Optional[AttrLike] = None):
+        if op not in reduce_init:
             raise ValueError(
                 'Operator \'{}\' cannot be used for reduction.'.format(op.value)
             )
@@ -540,7 +542,7 @@ class ReduceTuple(Attr):
         super().__init__()
         self.op = op
         self.tup = to_attr(tup)
-        self.init = to_attr(init)
+        self.init = to_attr(reduce_init[op] if init is None else init)
         self._update_free_sym()
 
     @property

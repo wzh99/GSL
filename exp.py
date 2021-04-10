@@ -272,7 +272,7 @@ class LowerGroupNorm(SubstTest):
         reshaped = op.Reshape(x, new_shape)
         mean = op.Mean(reshaped, axis=reduced_axes, keepdims=True)
         demean = reshaped - mean
-        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, new_shape[attr.Slice(start=axis + 1)], 1)
+        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, new_shape[attr.Slice(start=axis + 1)])
         var = op.Sum(demean * demean, axis=reduced_axes, keepdims=True) / \
               op.Cast(n_val, dtype=x.dtype)
         norm = demean / op.Sqrt(var + gn.epsilon)
@@ -380,6 +380,45 @@ class LowerL2Norm(SubstTest):
         return Subst(l2, result)
 
 
+class CombineParallelConv2D(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 2, 4, 4))
+        w1 = relay.var('w1', shape=(2, 2, 3, 3))
+        w2 = relay.var('w2', shape=(2, 2, 3, 3))
+        w3 = relay.var('w3', shape=(4, 2, 3, 3))
+        data = [relay.nn.relu(relay.nn.conv2d(x, w, padding=(1, 1, 1, 1))) for w in [w1, w2, w3]]
+        return relay.concatenate(data, 1)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.CombineParallelConv2D(min_num_branches=2)
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        w1 = pat.Variable()
+        conv1 = op.Conv2D(x, w1, groups=1)
+        w_shape = attr.Cond(conv1.kernel_layout == 'OIHW', (None, None, w1.shape[2], w1.shape[3]),
+                            (w1.shape[0], w1.shape[1], None, None))
+        w = pat.Variable(shape=w_shape)
+        attrs = ['strides', 'padding', 'dilation', 'groups', 'data_layout', 'kernel_layout',
+                 'out_dtype', 'out_layout']
+        conv = op.Conv2D(x, w, **pat.same_attr(conv1, attrs))
+        src = pat.Variadic(conv, templates=[conv, w], first=[conv1, w1], min_len=2)
+
+        i = attr.Symbol()
+        w_inst = src(w, i)
+        concat = op.Concatenate(pat.Variadic(w_inst, templates=[w_inst], index=i, length=src.length),
+                                axis=0)
+        conv = op.Conv2D(x, concat, **pat.same_attr(conv1, attrs))
+        split = op.Split(conv, axis=1, indices_or_sections=attr.Variadic(
+            lambda j: attr.ReduceIndexed(attr.BinaryOp.ADD, lambda k: src(w, k).shape[0], j + 1),
+            length=src.length - 1))
+        i = attr.Symbol()
+        item = split[i]
+        tgt = pat.Variadic(item, templates=[item], index=i)
+
+        return Subst(src, tgt)
+
+
 if __name__ == '__main__':
     for cls in [
         # LowerBatchNorm,
@@ -387,5 +426,6 @@ if __name__ == '__main__':
         # LowerGroupNorm,
         # LowerInstanceNorm,
         # LowerL2Norm,
+        CombineParallelConv2D,
     ]:
         cls().run()

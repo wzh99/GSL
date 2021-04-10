@@ -125,9 +125,6 @@ class Mean(Call):
         }))
 
 
-
-
-
 class MatrixSetDiag(Call):
     def __init__(self, data: PatternLike,
                  diagonal: PatternLike,
@@ -149,9 +146,17 @@ class Conv2D(Call):
                  strides: Union[tuple, Attr, None] = None,
                  padding: Union[tuple, Attr, None] = None,
                  dilation: Union[tuple, Attr, None] = None,
-                 groups: Union[int, Attr, None] = None):
+                 groups: Union[int, Attr, None] = None,
+                 channels: Union[int, Attr, None] = None,
+                 kernel_size: Union[tuple, Attr, None] = None,
+                 data_layout: Union[str, Attr, None] = None,
+                 kernel_layout: Union[str, Attr, None] = None,
+                 out_layout: Union[str, Attr, None] = None,
+                 out_dtype: Union[str, Attr, None] = None):
         super().__init__('nn.conv2d', data, weight, **pat.filter_attrs({
             'strides': strides, 'padding': padding, 'dilation': dilation, 'groups': groups,
+            'channels': channels, 'kernel_size': kernel_size, 'data_layout': data_layout,
+            'kernel_layout': kernel_layout, 'out_layout': out_layout, 'out_dtype': out_dtype,
         }))
 
 
