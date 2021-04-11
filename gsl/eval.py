@@ -73,7 +73,7 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
                 self.eval_his[a] = val
             return val
 
-    def visit_any(self, a: attr.Any, env: Env):
+    def visit_none(self, n: attr.NoneAttr, env: Env):
         return None
 
     def visit_const(self, const: attr.Const, env: Env):
@@ -149,6 +149,10 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         slc = self.visit_slice(getslice.slc, env)
         return tup[slc]
 
+    def visit_reverse(self, rev: attr.Reverse, env: Env):
+        tup = self.visit(rev.tup, env)
+        return tuple(reversed(tup))
+
     def visit_unary(self, unary: attr.Unary, env: Env):
         v = self.visit(unary.attr, env)
         v_ty = v.__class__
@@ -163,7 +167,16 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return op_func[v_ty](v)
 
     def visit_binary(self, binary: attr.Binary, env: Env):
+        # Evaluate both sides
         lv, rv = self.visit(binary.lhs, env), self.visit(binary.rhs, env)
+
+        # Handle == and !=
+        if binary.op == attr.BinaryOp.EQ:
+            return lv == rv
+        elif binary.op == attr.BinaryOp.NE:
+            return lv != rv
+
+        # Evaluate rest ops
         ty_tup = (lv.__class__, rv.__class__)
         bin_op = binary.op
         op_func = attr.Binary.eval_func[bin_op]

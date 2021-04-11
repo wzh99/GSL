@@ -122,13 +122,13 @@ class Attr:
 AttrLike = Union[Attr, AttrValueType, None]
 
 
-class Any(Attr):
+class NoneAttr(Attr):
     """
-    Matches any attribute value.
+    Evaluate to `None`, and matches any attribute.
     """
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
-        return visitor.visit_any(self, arg)
+        return visitor.visit_none(self, arg)
 
 
 class Const(Attr):
@@ -274,6 +274,19 @@ class GetSlice(Attr):
         return visitor.visit_getslice(self, arg)
 
 
+class Reverse(Attr):
+    def __init__(self, tup: Attr):
+        super().__init__()
+        self.tup = tup
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.tup]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_reverse(self, arg)
+
+
 def to_attr(val: AttrLike) -> Attr:
     """
     Create an attribute expression with given value.
@@ -282,7 +295,7 @@ def to_attr(val: AttrLike) -> Attr:
     :return: Attribute expression created from given value.
     """
     if val is None:
-        return Any()
+        return NoneAttr()
     elif isinstance(val, Attr):
         return val
     elif isinstance(val, Attr.value_class):
@@ -611,7 +624,7 @@ class AttrVisitor(Generic[ArgType, RetType]):
     def visit(self, attr: Attr, arg: ArgType) -> RetType:
         return attr.accept(self, arg)
 
-    def visit_any(self, a: Any, arg: ArgType):
+    def visit_none(self, n: NoneAttr, arg: ArgType):
         pass
 
     def visit_const(self, const: Const, arg: ArgType):
@@ -644,6 +657,9 @@ class AttrVisitor(Generic[ArgType, RetType]):
     def visit_getslice(self, getslice: GetSlice, arg: ArgType):
         self.visit(getslice.tup, arg)
         self.visit(getslice.slc, arg)
+
+    def visit_reverse(self, rev: Reverse, arg: ArgType):
+        self.visit(rev.tup, arg)
 
     def visit_unary(self, unary: Unary, arg: ArgType):
         self.visit(unary.attr, arg)

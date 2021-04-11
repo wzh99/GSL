@@ -114,10 +114,27 @@ class SimplifyTranspose(SubstTest):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 6, 8))
         x = relay.transpose(x)
-        return relay.transpose(x)
+        return relay.transpose(x, axes=(0, 3, 1, 2))
 
     def get_pass(self) -> transform.Pass:
         return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        trans1 = op.Transpose(x)
+        trans2 = op.Transpose(trans1)
+
+        axes1 = self._get_axes(trans1.axes, x.ndim)
+        axes2 = self._get_axes(trans2.axes, x.ndim)
+        axes = attr.Map(axes2, lambda a: axes1[a])
+        trans = pat.Cond(axes == attr.Range(x.ndim), x, op.Transpose(x, axes))
+
+        return Subst(trans2, trans)
+
+    @staticmethod
+    def _get_axes(axes: attr.Attr, ndim: attr.Attr):
+        return attr.Cond(axes == None, attr.Reverse(attr.Range(ndim)),
+                         attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
 
 
 class LowerBatchNorm(SubstTest):
@@ -518,7 +535,7 @@ class CombineParallelBatchMatmul(SubstTest):
 if __name__ == '__main__':
     for cls in [
         # SimplifyReshape,
-        # SimplifyTranspose,
+        SimplifyTranspose,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,
