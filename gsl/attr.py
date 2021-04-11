@@ -115,6 +115,9 @@ class Attr:
     def min(self, other: 'AttrLike'):
         return Binary(BinaryOp.MIN, self, other)
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        raise NotImplementedError()
+
 
 AttrLike = Union[Attr, AttrValueType, None]
 
@@ -123,7 +126,9 @@ class Any(Attr):
     """
     Matches any attribute value.
     """
-    pass
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_any(self, arg)
 
 
 class Const(Attr):
@@ -134,6 +139,9 @@ class Const(Attr):
     def __init__(self, value: AttrPrimType):
         super().__init__()
         self.value = value
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_const(self, arg)
 
 
 class GetAttr(Attr):
@@ -147,6 +155,9 @@ class GetAttr(Attr):
         self.pat: Pattern = pat
         self.name = name
         self.free_sym.update(self.pat.free_sym)
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_getattr(self, arg)
 
 
 class Range(Attr):
@@ -165,6 +176,9 @@ class Range(Attr):
     def sub_expr(self) -> List['Attr']:
         return [self.stop, self.start, self.step]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_range(self, arg)
+
 
 class Tuple(Attr):
     """
@@ -179,6 +193,9 @@ class Tuple(Attr):
     @property
     def sub_expr(self) -> List['Attr']:
         return self.fields
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_tuple(self, arg)
 
 
 class TupleLen(Attr):
@@ -195,6 +212,9 @@ class TupleLen(Attr):
     def sub_expr(self) -> List['Attr']:
         return [self.tup]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_tuple_len(self, arg)
+
 
 class GetItem(Attr):
     """
@@ -210,6 +230,9 @@ class GetItem(Attr):
     @property
     def sub_expr(self) -> List['Attr']:
         return [self.tup, self.index]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_getitem(self, arg)
 
 
 class Slice(Attr):
@@ -228,6 +251,9 @@ class Slice(Attr):
     def sub_expr(self) -> List['Attr']:
         return [self.start, self.stop, self.step]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_slice(self, arg)
+
 
 class GetSlice(Attr):
     """
@@ -243,6 +269,9 @@ class GetSlice(Attr):
     @property
     def sub_expr(self) -> List['Attr']:
         return [self.tup, self.slc]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_getslice(self, arg)
 
 
 def to_attr(val: AttrLike) -> Attr:
@@ -285,6 +314,9 @@ class Unary(Attr):
     @property
     def sub_expr(self) -> List['Attr']:
         return [self.attr]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_unary(self, arg)
 
     eval_funcs: Dict[UnaryOp, Dict[Type, Callable[[ty.Any], ty.Any]]] = {
         UnaryOp.NEG: {
@@ -329,6 +361,9 @@ class Binary(Attr):
     @property
     def sub_expr(self) -> List['Attr']:
         return [self.lhs, self.rhs]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_binary(self, arg)
 
     eval_func: Dict[BinaryOp, Dict[ty.Tuple[Type, Type], Callable[[ty.Any, ty.Any], ty.Any]]] = {
         BinaryOp.ADD: {
@@ -400,6 +435,9 @@ class Cond(Attr):
     def sub_expr(self) -> List['Attr']:
         return [self.pred, self.then_br, self.else_br]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_cond(self, arg)
+
 
 class Symbol(Attr):
     """
@@ -409,6 +447,9 @@ class Symbol(Attr):
     def __init__(self):
         super().__init__()
         self.free_sym = {self}
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_symbol(self, arg)
 
 
 class Env:
@@ -465,6 +506,9 @@ class Variadic(Attr):
     def bounded_sym(self) -> List['Symbol']:
         return [self.index]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_variadic(self, arg)
+
 
 class Map(Attr):
     """Map all elements in a tuple to new values"""
@@ -483,6 +527,9 @@ class Map(Attr):
     @property
     def bounded_sym(self) -> List['Symbol']:
         return [self.sym]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_map(self, arg)
 
 
 reduce_init: Dict[BinaryOp, ty.Any] = {
@@ -527,6 +574,9 @@ class ReduceIndexed(Attr):
     def bounded_sym(self) -> List['Symbol']:
         return [self.index]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_reduce_indexed(self, arg)
+
 
 class ReduceTuple(Attr):
     """
@@ -549,6 +599,9 @@ class ReduceTuple(Attr):
     def sub_expr(self) -> List['Attr']:
         return [self.tup, self.init]
 
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_reduce_tuple(self, arg)
+
 
 ArgType = TypeVar('ArgType')
 RetType = TypeVar('RetType')
@@ -556,40 +609,7 @@ RetType = TypeVar('RetType')
 
 class AttrVisitor(Generic[ArgType, RetType]):
     def visit(self, attr: Attr, arg: ArgType) -> RetType:
-        if isinstance(attr, Any):
-            return self.visit_any(attr, arg)
-        elif isinstance(attr, Const):
-            return self.visit_const(attr, arg)
-        elif isinstance(attr, GetAttr):
-            return self.visit_getattr(attr, arg)
-        elif isinstance(attr, Range):
-            return self.visit_range(attr, arg)
-        elif isinstance(attr, Tuple):
-            return self.visit_tuple(attr, arg)
-        elif isinstance(attr, TupleLen):
-            return self.visit_tuple_len(attr, arg)
-        elif isinstance(attr, GetItem):
-            return self.visit_getitem(attr, arg)
-        elif isinstance(attr, Slice):
-            return self.visit_slice(attr, arg)
-        elif isinstance(attr, GetSlice):
-            return self.visit_getslice(attr, arg)
-        elif isinstance(attr, Binary):
-            return self.visit_binary(attr, arg)
-        elif isinstance(attr, Cond):
-            return self.visit_cond(attr, arg)
-        elif isinstance(attr, Symbol):
-            return self.visit_symbol(attr, arg)
-        elif isinstance(attr, Variadic):
-            return self.visit_variadic(attr, arg)
-        elif isinstance(attr, Map):
-            return self.visit_map(attr, arg)
-        elif isinstance(attr, ReduceIndexed):
-            return self.visit_reduce_indexed(attr, arg)
-        elif isinstance(attr, ReduceTuple):
-            return self.visit_reduce_tuple(attr, arg)
-        else:
-            raise RuntimeError('Unknown attribute type.')
+        return attr.accept(self, arg)
 
     def visit_any(self, a: Any, arg: ArgType):
         pass

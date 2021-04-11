@@ -93,6 +93,33 @@ def _num_new_axis_attr(axis: attr.Attr, ndim: attr.Attr):
     return ndim - 1 - axis
 
 
+class SimplifyReshape(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        x = relay.reshape(x, newshape=(2, 16))
+        x = relay.reshape(x, newshape=(2, 1, 16))
+        return relay.reshape(x, newshape=(2, 2, 8))
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        src = op.Reshape(op.Reshape(x))
+        tgt = op.Reshape(x, newshape=src.newshape)
+        return Subst(src, tgt)
+
+
+class SimplifyTranspose(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 6, 8))
+        x = relay.transpose(x)
+        return relay.transpose(x)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+
 class LowerBatchNorm(SubstTest):
     def __init__(self):
         super().__init__()
@@ -490,6 +517,8 @@ class CombineParallelBatchMatmul(SubstTest):
 
 if __name__ == '__main__':
     for cls in [
+        # SimplifyReshape,
+        # SimplifyTranspose,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,

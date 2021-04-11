@@ -235,7 +235,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
                 'Target pattern contains wildcard node not defined in source graph.'
             )
 
-    def visit_var(self, var: pat.Variable, env: Env) -> Any:
+    def visit_variable(self, var: pat.Variable, env: Env) -> Any:
         if var not in self.src_nodes:
             raise ValueError(
                 'Target pattern contains variable node not defined in source graph.'

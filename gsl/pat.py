@@ -148,6 +148,9 @@ class Pattern:
         _Visualizer(graph, fontname=font_name, **attrs).visit(self, None)
         graph.view(directory=path)
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        raise NotImplementedError()
+
 
 class Wildcard(Pattern):
     """
@@ -158,6 +161,9 @@ class Wildcard(Pattern):
     @property
     def avail_attrs(self) -> List[str]:
         return self.tensor_attrs
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_wildcard(self, arg)
 
 
 class Variable(Pattern):
@@ -189,6 +195,9 @@ class Variable(Pattern):
     @property
     def attr_expr(self) -> List[Attr]:
         return list(self.attrs.values())
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_variable(self, arg)
 
 
 def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
@@ -239,6 +248,9 @@ class Const(Pattern):
     def attr_expr(self) -> List[Attr]:
         return [self.value] if isinstance(self.value, Attr) else []
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_const(self, arg)
+
 
 PatternLike = Union[Pattern, ConstValueType]
 
@@ -260,7 +272,12 @@ def to_pat(val: PatternLike) -> Pattern:
 
 class Op(Pattern):
     def __str__(self):
-        pass
+        raise NotImplementedError()
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        raise RuntimeError(
+            'Visitor will not be dispatched to this pattern.'
+        )
 
 
 class ConcreteOp(Op):
@@ -340,6 +357,9 @@ class Call(Pattern):
         else:
             return True
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_call(self, arg)
+
 
 def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, attr.Attr]:
     """
@@ -364,6 +384,9 @@ class Tuple(Pattern):
     def pred(self):
         return self.fields
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_tuple(self, arg)
+
 
 class GetItem(Pattern):
     def __init__(self, tup: Pattern, index: attr.AttrLike = None):
@@ -383,6 +406,9 @@ class GetItem(Pattern):
     @property
     def attr_expr(self) -> List[Attr]:
         return [self.idx]
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_getitem(self, arg)
 
 
 class Cond(Pattern):
@@ -406,6 +432,9 @@ class Cond(Pattern):
     @property
     def attr_expr(self) -> List[Attr]:
         return [self.predicate]
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_cond(self, arg)
 
 
 class Variadic(Pattern):
@@ -564,6 +593,9 @@ class Variadic(Pattern):
                 for p in inst.pred:
                     p.succ.remove(inst)
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_variadic(self, arg)
+
 
 class GetInst(Pattern):
     def __init__(self, var: Variadic, tpl: Pattern, index: attr.AttrLike):
@@ -581,6 +613,9 @@ class GetInst(Pattern):
     def attr_expr(self) -> List[Attr]:
         return [self.idx]
 
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_get_instance(self, arg)
+
 
 ArgType = TypeVar('ArgType')
 
@@ -592,33 +627,14 @@ class PatternVisitor(Generic[ArgType]):
     def visit(self, pat: Pattern, arg: ArgType) -> Any:
         if pat in self.visited:
             return self.visited[pat]
-        if isinstance(pat, Wildcard):
-            ret = self.visit_wildcard(pat, arg)
-        elif isinstance(pat, Variable):
-            ret = self.visit_var(pat, arg)
-        elif isinstance(pat, Const):
-            ret = self.visit_const(pat, arg)
-        elif isinstance(pat, Call):
-            ret = self.visit_call(pat, arg)
-        elif isinstance(pat, Tuple):
-            ret = self.visit_tuple(pat, arg)
-        elif isinstance(pat, GetItem):
-            ret = self.visit_getitem(pat, arg)
-        elif isinstance(pat, Cond):
-            ret = self.visit_cond(pat, arg)
-        elif isinstance(pat, Variadic):
-            ret = self.visit_variadic(pat, arg)
-        elif isinstance(pat, GetInst):
-            ret = self.visit_get_instance(pat, arg)
-        else:
-            raise RuntimeError('Unknown node type.')
+        ret = pat.accept(self, arg)
         self.visited[pat] = ret
         return ret
 
     def visit_wildcard(self, wildcard: Wildcard, arg: ArgType) -> Any:
         pass
 
-    def visit_var(self, var: Variable, arg: ArgType) -> Any:
+    def visit_variable(self, var: Variable, arg: ArgType) -> Any:
         pass
 
     def visit_const(self, const: Const, arg: ArgType) -> Any:
@@ -644,10 +660,6 @@ class PatternVisitor(Generic[ArgType]):
 
     def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
         self.visit(get_inst.var, arg)
-
-    # Visitor will not dispatch this method
-    def visit_op(self, op: Op, arg: ArgType) -> Any:
-        pass
 
 
 class _PatInst(PatternVisitor[None]):
@@ -676,7 +688,7 @@ class _PatInst(PatternVisitor[None]):
     def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Pattern:
         return Wildcard()
 
-    def visit_var(self, var: Variable, arg: None) -> Pattern:
+    def visit_variable(self, var: Variable, arg: None) -> Pattern:
         return Variable(**var.attrs)
 
     def visit_const(self, const: Const, arg: None) -> Pattern:
@@ -720,7 +732,7 @@ class _Visualizer(PatternVisitor[None]):
         self.graph.node(node_id, label='*', **self.attrs)
         return node_id
 
-    def visit_var(self, var: Variable, arg: None) -> Any:
+    def visit_variable(self, var: Variable, arg: None) -> Any:
         node_id = self._next_id()
         self.graph.node(node_id, label='Var', **self.attrs)
         return node_id
