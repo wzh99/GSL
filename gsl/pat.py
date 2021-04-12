@@ -411,9 +411,9 @@ class Cond(Pattern):
     This pattern can only be used in rewrite process but not in match.
     """
 
-    def __init__(self, predicate: attr.Attr, then_pat: PatternLike, else_pat: PatternLike):
+    def __init__(self, predicate: attr.AttrLike, then_pat: PatternLike, else_pat: PatternLike):
         super().__init__()
-        self.predicate = predicate
+        self.predicate = attr.to_attr(predicate)
         self.then_pat = to_pat(then_pat)
         self.else_pat = to_pat(else_pat)
         self._update_free_sym()

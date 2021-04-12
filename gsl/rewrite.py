@@ -30,7 +30,7 @@ class ExprRewriter:
 
         # Use fast mode if possible
         if self.fast_mode and len(self.src_outs) == 1 and not self.variadic:
-            return _SinglePatRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
+            return _SingleRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
 
         # Greedily match all subgraphs
         while True:
@@ -310,9 +310,9 @@ class _TypeMapper(relay.ExprVisitor):
         self.ty_map: ExprTypeMap = {}
 
     def visit(self, expr: relay.Expr):
+        super().visit(expr)
         if isinstance(expr, (relay.Constant, relay.Var, relay.Call, relay.Tuple,
                              relay.TupleGetItem)):
-            super().visit(expr)
             ty = expr.checked_type
             self.ty_map[expr] = ty
 
@@ -487,31 +487,28 @@ class _RewriteMutator(relay.ExprMutator):
         return new_args, changed
 
 
-class _SinglePatRewriter(relay.ExprMutator):
+class _SingleRewriter(relay.ExprMutator):
     def __init__(self, src: Pattern, tgt: Pattern, ty_map: ExprTypeMap):
         super().__init__()
         self.src = src
         self.tgt = tgt
         self.ty_map = ty_map
 
-    def visit(self, expr: relay.Expr):
-        # Directly return if it has been visited before
-        if expr in self.memo_map:
-            return self.memo_map[expr]
-
+    def visit(self, pre: relay.Expr):
         # Rewrite predecessors
-        new_expr = super().visit(expr)
+        mid = super().visit(pre)
+        if pre in self.ty_map:
+            self.ty_map[mid] = self.ty_map[pre]
 
-        # Match pattern with this expression
+        # Match and rewrite
         pat_to_expr = PatExprMap()
         matcher = Matcher(pat_to_expr, self.ty_map)
-        if matcher.match(self.src, new_expr, Env()):
-            eval_his: EvalHistory = {}
-            new_expr = _RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(self.tgt, Env())
-
-        # Map to new expression
-        self.memo_map[expr] = new_expr
-        if expr in self.ty_map:
-            self.ty_map[new_expr] = self.ty_map[expr]
-
-        return new_expr
+        if matcher.match(self.src, mid, Env()):
+            post = _RelayBuilder(pat_to_expr, self.ty_map, {}).visit(self.tgt, Env())
+            if pre in self.ty_map:
+                del self.ty_map[mid]
+                self.ty_map[post] = self.ty_map[pre]
+            self.memo_map[pre] = post
+            return post
+        else:
+            return mid

@@ -157,11 +157,12 @@ class FullElementWise(SubstTest):
         ones = pat.Alt(op.Ones(), op.OnesLike(liked))
         zeros = pat.Alt(op.Zeros(), op.ZerosLike(liked))
         scalar = pat.Alt(full, ones, zeros)
-        elem_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
-        src = pat.Alt(op.Call(elem_op, x, scalar), op.Call(elem_op, scalar, x))
+        ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
+        src = pat.Alt(op.Call(ew_op, x, scalar), op.Call(ew_op, scalar, x))
 
         const = pat.Const(attr.Match(scalar, [val.value, 1, 0]), dtype=x.dtype)
-        tgt = pat.Match(src, [pat.Call(elem_op, x, const), pat.Call(elem_op, const, x)])
+        tgt = pat.Cond(x.shape == src.shape,
+                       pat.Match(src, [pat.Call(ew_op, x, const), pat.Call(ew_op, const, x)]), src)
 
         return Subst(src, tgt)
 
