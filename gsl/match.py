@@ -1,5 +1,5 @@
 import numpy as np
-from tvm import ir, relay
+from tvm import relay, ir
 
 from . import attr, pat, spec, util
 from .attr import Attr, Env
@@ -27,6 +27,8 @@ class Matcher:
             res = self.match_var(p, expr, env)
         elif isinstance(p, pat.Const):
             res = self.match_const(p, expr, env)
+        elif isinstance(p, pat.Op):
+            res = self.match_op(p, expr, env)
         elif isinstance(p, pat.Call):
             res = self.match_call(p, expr, env)
         elif isinstance(p, pat.Tuple):
@@ -41,7 +43,7 @@ class Matcher:
             res = False
 
         # Add to record if matched
-        if res:
+        if res and not isinstance(p, pat.ConcreteOp):
             self.pat_to_expr[p] = expr
         return res
 
@@ -81,7 +83,7 @@ class Matcher:
             return False
 
         # Match op
-        if not self.match_op(call.op, expr.op):
+        if not self.match(call.op, expr.op, env):
             return False
 
         # Match arguments
@@ -104,16 +106,14 @@ class Matcher:
 
         return True
 
-    def match_op(self, pat_op: pat.Op, expr_op: ir.Op) -> bool:
+    @classmethod
+    def match_op(cls, pat_op: pat.Op, expr_op: relay.Expr, _env: Env) -> bool:
+        if not isinstance(expr_op, ir.Op):
+            return False
         if isinstance(pat_op, pat.ConcreteOp):
             return pat_op.name == expr_op.name
         elif isinstance(pat_op, pat.OpWithTrait):
-            if pat_op in self.pat_to_expr:
-                return self.pat_to_expr[pat_op].name == expr_op.name
-            matched = spec.match_trait(expr_op.name, pat_op.trait)
-            if matched:
-                self.pat_to_expr[pat_op] = expr_op
-            return matched
+            return spec.match_trait(expr_op.name, pat_op.trait)
         else:
             raise RuntimeError('Unreachable.')
 

@@ -4,8 +4,7 @@ from typing import List, Dict, Callable, Union, Any, Optional, Generic, TypeVar,
 import numpy as np
 
 from . import attr, spec
-from .attr import Attr, Symbol
-from .util import default_font_name
+from .attr import Attr, Symbol, AttrLike
 
 
 class Pattern:
@@ -134,20 +133,6 @@ class Pattern:
         for p in self.pred:
             p.clear()
 
-    def visualize(self, name: str, path: str = 'out', font_name: str = default_font_name, **attrs):
-        """
-        Visualize this graph pattern node.
-
-        :param name: Name of the file.
-        :param path: Directory to store the file.
-        :param font_name: Name of the font used to display node texts.
-        :param attrs: Other attributes for GraphViz to plot the nodes.
-        """
-        from graphviz import Digraph
-        graph = Digraph(name=name)
-        _Visualizer(graph, fontname=font_name, **attrs).visit(self, None)
-        graph.view(directory=path)
-
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         raise NotImplementedError()
 
@@ -274,10 +259,11 @@ class Op(Pattern):
     def __str__(self):
         raise NotImplementedError()
 
+    def __call__(self, *args: PatternLike, **raw_attrs: AttrLike):
+        return Call(self, *args, **raw_attrs)
+
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
-        raise RuntimeError(
-            'Visitor will not be dispatched to this pattern.'
-        )
+        return visitor.visit_op(self, arg)
 
 
 class ConcreteOp(Op):
@@ -303,7 +289,8 @@ class Call(Pattern):
     Represents an operator call.
     """
 
-    def __init__(self, op: Union[Op, str, spec.OpTrait], *args: PatternLike, **raw_attr):
+    def __init__(self, op: Union[Pattern, str, spec.OpTrait], *args: PatternLike,
+                 **raw_attrs: AttrLike):
         super().__init__()
         self.args = [to_pat(a) for a in args]
 
@@ -312,7 +299,7 @@ class Call(Pattern):
             op = ConcreteOp(op)
         elif isinstance(op, spec.OpTrait):
             op = OpWithTrait(op)
-        self.op = op
+        self.op: Pattern = op
 
         # Check number of inputs
         if isinstance(op, ConcreteOp):
@@ -323,7 +310,7 @@ class Call(Pattern):
                 )
 
         # Convert raw attribute values to attribute nodes if necessary
-        self.attrs = dict([(name, attr.to_attr(val)) for name, val in raw_attr.items()])
+        self.attrs = dict([(name, attr.to_attr(val)) for name, val in raw_attrs.items()])
 
         # Check if specified attributes really exists in op
         if isinstance(op, ConcreteOp):
@@ -389,7 +376,7 @@ class Tuple(Pattern):
 
 
 class GetItem(Pattern):
-    def __init__(self, tup: Pattern, index: attr.AttrLike = None):
+    def __init__(self, tup: Pattern, index: AttrLike = None):
         super().__init__()
         self.tup = tup
         self.idx = attr.to_attr(index)
@@ -417,8 +404,7 @@ class Cond(Pattern):
     This pattern can only be used in rewrite process but not in match.
     """
 
-    def __init__(self, predicate: attr.Attr, then_pat: PatternLike,
-                 else_pat: PatternLike):
+    def __init__(self, predicate: attr.Attr, then_pat: PatternLike, else_pat: PatternLike):
         super().__init__()
         self.predicate = predicate
         self.then_pat = to_pat(then_pat)
@@ -640,7 +626,11 @@ class PatternVisitor(Generic[ArgType]):
     def visit_const(self, const: Const, arg: ArgType) -> Any:
         pass
 
+    def visit_op(self, op: Op, arg: ArgType) -> Any:
+        pass
+
     def visit_call(self, call: Call, arg: ArgType) -> Any:
+        self.visit(call.op, arg)
         for a in call.args:
             self.visit(a, arg)
 
@@ -694,9 +684,18 @@ class _PatInst(PatternVisitor[None]):
     def visit_const(self, const: Const, arg: None) -> Pattern:
         return Const(const.value)
 
+    def visit_op(self, op: Op, arg: ArgType) -> Any:
+        if isinstance(op, ConcreteOp):
+            return op
+        elif isinstance(op, OpWithTrait):
+            return OpWithTrait(op.trait)
+        else:
+            raise RuntimeError('Unreachable.')
+
     def visit_call(self, call: Call, arg: None) -> Pattern:
+        op = self.visit(call.op, arg)
         args = self._visit_pred(call, arg)
-        return Call(call.op, *args, **call.attrs)
+        return Call(op, *args, **call.attrs)
 
     def visit_tuple(self, tup: Tuple, arg: None) -> Pattern:
         fields = self._visit_pred(tup, arg)
@@ -717,71 +716,3 @@ class _PatInst(PatternVisitor[None]):
 
     def _visit_pred(self, pat: Pattern, arg: None) -> List[Pattern]:
         return [self.visit(p, arg) for p in pat.pred]
-
-
-class _Visualizer(PatternVisitor[None]):
-    def __init__(self, graph, **attrs):
-        super().__init__()
-        from graphviz import Digraph
-        self.graph: Digraph = graph
-        self.attrs = attrs
-        self.counter = 0
-
-    def visit_wildcard(self, wildcard: Wildcard, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='*', **self.attrs)
-        return node_id
-
-    def visit_variable(self, var: Variable, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='Var', **self.attrs)
-        return node_id
-
-    def visit_const(self, const: Const, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='Const', **self.attrs)
-        return node_id
-
-    def visit_call(self, call: Call, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label=str(call.op), **self.attrs)
-        for a in call.args:
-            self.graph.edge(self.visit(a, arg), node_id)
-        return node_id
-
-    def visit_tuple(self, tup: Tuple, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='(,)', **self.attrs)
-        for f in tup.fields:
-            self.graph.edge(self.visit(f, arg), node_id)
-        return node_id
-
-    def visit_getitem(self, getitem: GetItem, arg: None) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='.{}'.format(getitem.idx), **self.attrs)
-        self.graph.edge(self.visit(getitem.tup, arg), node_id)
-        return node_id
-
-    def visit_cond(self, cond: Cond, arg: ArgType) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='Cond', **self.attrs)
-        self.graph.edge(self.visit(cond.then_pat, arg), node_id)
-        self.graph.edge(self.visit(cond.else_pat, arg), node_id)
-        return node_id
-
-    def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='(...)', **self.attrs)
-        self.graph.edge(self.visit(var.field, arg), node_id)
-        return node_id
-
-    def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
-        node_id = self._next_id()
-        self.graph.node(node_id, label='[i, x]', **self.attrs)
-        self.graph.edge(self.visit(get_inst.var, arg), node_id)
-        return node_id
-
-    def _next_id(self) -> str:
-        cur_id = str(self.counter)
-        self.counter += 1
-        return cur_id

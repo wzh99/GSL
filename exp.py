@@ -114,7 +114,8 @@ class SimplifyTranspose(SubstTest):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 6, 8))
         x = relay.transpose(x)
-        return relay.transpose(x, axes=(0, 3, 1, 2))
+        x = relay.transpose(x, axes=(0, 3, 1, 2))
+        return relay.transpose(x, axes=(3, 1, 0, 2))
 
     def get_pass(self) -> transform.Pass:
         return relay.transform.SimplifyExpr()
@@ -133,7 +134,7 @@ class SimplifyTranspose(SubstTest):
 
     @staticmethod
     def _get_axes(axes: attr.Attr, ndim: attr.Attr):
-        return attr.Cond(axes == None, attr.Reverse(attr.Range(ndim)),
+        return attr.Cond(axes == attr.NoneAttr(), attr.Reverse(attr.Range(ndim)),
                          attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
 
 
@@ -535,7 +536,7 @@ class CombineParallelBatchMatmul(SubstTest):
 if __name__ == '__main__':
     for cls in [
         # SimplifyReshape,
-        SimplifyTranspose,
+        # SimplifyTranspose,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,
