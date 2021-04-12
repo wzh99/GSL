@@ -452,6 +452,30 @@ class Cond(Attr):
         return visitor.visit_cond(self, arg)
 
 
+class Match(Attr):
+    """
+    Evaluate different attribute expression according to matched alternative pattern.
+    """
+
+    def __init__(self, alt, clauses: List[AttrLike]):
+        super().__init__()
+        from .pat import Alt
+        self.alt: Alt = alt
+        if len(alt.pats) != len(clauses):
+            raise ValueError(
+                'Expect {} clauses, got {}.'.format(len(alt.pats), len(clauses))
+            )
+        self.clauses = [to_attr(a) for a in clauses]
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return self.clauses
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_match(self, arg)
+
+
 class Symbol(Attr):
     """
     A language symbol which can be mapped to attribute value.
@@ -672,6 +696,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
         self.visit(cond.pred, arg)
         self.visit(cond.then_br, arg)
         self.visit(cond.else_br, arg)
+
+    def visit_match(self, match: Match, arg: ArgType):
+        for c in match.clauses:
+            self.visit(c, arg)
 
     def visit_symbol(self, sym: Symbol, arg: ArgType):
         pass

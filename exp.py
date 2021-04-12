@@ -4,7 +4,7 @@ from typing import Dict, Optional
 from tvm import relay, transform, ir
 from tvm.relay import dataflow_pattern as dfp
 
-from gsl import pat, op, attr, Subst, Workload
+from gsl import pat, op, attr, spec, Subst, Workload
 
 
 class SubstTest(dfp.DFPatternCallback):
@@ -136,6 +136,34 @@ class SimplifyTranspose(SubstTest):
     def _get_axes(axes: attr.Attr, ndim: attr.Attr):
         return attr.Cond(axes == attr.NoneAttr(), attr.Reverse(attr.Range(ndim)),
                          attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
+
+
+class FullElementWise(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        full = relay.full_like(x, relay.const(2))
+        return relay.add(x, full)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        val = pat.Const()
+        liked = pat.Wildcard()
+        liked.injective = False
+
+        full = pat.Alt(op.Full(val), op.FullLike(liked, val))
+        ones = pat.Alt(op.Ones(), op.OnesLike(liked))
+        zeros = pat.Alt(op.Zeros(), op.ZerosLike(liked))
+        scalar = pat.Alt(full, ones, zeros)
+        elem_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
+        src = pat.Alt(op.Call(elem_op, x, scalar), op.Call(elem_op, scalar, x))
+
+        const = pat.Const(attr.Match(scalar, [val.value, 1, 0]), dtype=x.dtype)
+        tgt = pat.Match(src, [pat.Call(elem_op, x, const), pat.Call(elem_op, const, x)])
+
+        return Subst(src, tgt)
 
 
 class LowerBatchNorm(SubstTest):
@@ -537,6 +565,7 @@ if __name__ == '__main__':
     for cls in [
         # SimplifyReshape,
         # SimplifyTranspose,
+        # FullElementWise,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,

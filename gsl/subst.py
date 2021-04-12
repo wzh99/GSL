@@ -41,7 +41,7 @@ class Subst:
             )
 
         # Check source and target if variadic pattern is provided
-        self.is_var = False
+        self.variadic = False
         if any([isinstance(p, pat.Variadic) for p in src_outs]):
             if len(src_outs) != 1:
                 raise ValueError(
@@ -51,9 +51,10 @@ class Subst:
                 raise ValueError(
                     'Variadic must be the only one pattern of target.'
                 )
-            self.is_var = True
+            self.variadic = True
 
         # Check source patterns
+        self.single = len(src_outs) == 1 and not self.variadic
         src_pats: Set[Pattern] = set()
         for i in range(len(src_outs)):
             # Check if output nodes have no successors
@@ -62,7 +63,7 @@ class Subst:
                 raise ValueError('Source output node cannot have successors.')
 
             # Check pattern graph
-            src_checker = _SrcPatChecker(src_pats, i)
+            src_checker = _SrcPatChecker(src_pats, i, self.single)
             src_checker.visit(out, Env())
 
             # Check if it is connected to the whole subgraph
@@ -77,7 +78,7 @@ class Subst:
             src_pats.update(cur_visited)
 
         # Check connectivity of variadic source
-        if self.is_var:
+        if self.variadic:
             # noinspection PyTypeChecker
             var: pat.Variadic = src_outs[0]
             non_tpl = src_pats.difference([var], var.templates, var.first)
@@ -113,7 +114,7 @@ class Subst:
             new_name = wl.name
 
         # Apply substitution to graph
-        rewriter = ExprRewriter(self.src_outs, self.tgt_outs, self.is_var, fast_mode)
+        rewriter = ExprRewriter(self.src_outs, self.tgt_outs, self.variadic, fast_mode)
         mod = _SubstFuncPass(rewriter)(wl.mod)
         new_wl = Workload(mod, wl.params, name=new_name)
         if fold_params:
@@ -123,10 +124,11 @@ class Subst:
 
 
 class _SrcPatChecker(PatternVisitor[Env]):
-    def __init__(self, prev_visited: Set[Pattern], idx: int):
+    def __init__(self, prev_visited: Set[Pattern], idx: int, single: bool):
         super().__init__()
         self.prev_visited = prev_visited
         self.idx = idx
+        self.single = single
         self.attr_checker = _SrcAttrChecker(self)
 
     def has_visited(self, node: Pattern):
@@ -142,8 +144,8 @@ class _SrcPatChecker(PatternVisitor[Env]):
         p.update_pred_succ()
 
     def visit_const(self, const: pat.Const, env: Env) -> Any:
-        if isinstance(const.value, attr.Attr):
-            self.attr_checker.visit(const.value, env)
+        if isinstance(const.val_, attr.Attr):
+            self.attr_checker.visit(const.val_, env)
 
     def visit_call(self, call: pat.Call, env: Env) -> Any:
         super().visit_call(call, env)
@@ -157,8 +159,20 @@ class _SrcPatChecker(PatternVisitor[Env]):
         self.attr_checker.visit(getitem.idx, env)
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> Any:
-        raise RuntimeError(
-            'Cannot use condition pattern in source pattern graph.'
+        raise ValueError(
+            'Cannot use condition pattern in source pattern.'
+        )
+
+    def visit_alt(self, alt: pat.Alt, env: Env) -> Any:
+        super().visit_alt(alt, env)
+        if not self.single:
+            raise ValueError(
+                'Alternative pattern can only be used in single output pattern.'
+            )
+
+    def visit_match(self, match: pat.Match, env: Env) -> Any:
+        raise ValueError(
+            'Match pattern cannot be used in source pattern.'
         )
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
@@ -169,7 +183,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
         for tpl in var.templates:
             if var.has_first(tpl):
                 fst = var.tpl_to_fst[tpl]
-                if fst.check_any(lambda p: p.is_template):
+                if fst.check_any(lambda p: p.is_tpl):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )
@@ -242,9 +256,9 @@ class _TgtPatChecker(PatternVisitor[Env]):
             )
 
     def visit_const(self, const: pat.Const, env: Env) -> Any:
-        if const.value is None:
+        if const.val_ is None and not const.in_src:
             raise ValueError(
-                'Constant node in target pattern must contain a value.'
+                'Constant pattern newly defined in target pattern must contain a value.'
             )
 
     def visit_call(self, call: pat.Call, env: Env) -> Any:
@@ -271,6 +285,12 @@ class _TgtPatChecker(PatternVisitor[Env]):
         for a in call.attrs.values():
             self.attr_checker.visit(a, env)
 
+    def visit_alt(self, alt: pat.Alt, env: Env) -> Any:
+        if not alt.in_src:
+            raise ValueError(
+                'Cannot create new alternative pattern in target pattern.'
+            )
+
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Check length
         if not var.is_output and not var.in_src:
@@ -290,7 +310,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         for tpl in var.templates:
             if var.has_first(tpl):
                 fst = var.tpl_to_fst[tpl]
-                if fst.check_any(lambda p: p.is_template):
+                if fst.check_any(lambda p: p.is_tpl):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )

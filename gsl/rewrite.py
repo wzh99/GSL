@@ -13,11 +13,11 @@ SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
 class ExprRewriter:
-    def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], is_var: bool,
+    def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], variadic: bool,
                  fast_mode: bool):
         self.src_outs = src_outs
         self.tgt_outs = tgt_outs
-        self.is_var = is_var
+        self.variadic = variadic
         self.fast_mode = fast_mode
         self.ty_map: ExprTypeMap = {}
         self.history = set()
@@ -29,7 +29,7 @@ class ExprRewriter:
         self.ty_map = mapper.ty_map
 
         # Use fast mode if possible
-        if self.fast_mode and len(self.src_outs) == 1 and not self.is_var:
+        if self.fast_mode and len(self.src_outs) == 1 and not self.variadic:
             return _SinglePatRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
 
         # Greedily match all subgraphs
@@ -39,7 +39,7 @@ class ExprRewriter:
 
             # Find matched expressions with patterns
             pat_to_expr = PatExprMap()
-            if self.is_var:  # match variadic with different procedure
+            if self.variadic:  # match variadic with different procedure
                 # noinspection PyTypeChecker
                 src_var: pat.Variadic = self.src_outs[0]
                 src_matched = self.match_variadic(src_var, expr, pat_to_expr, succ_list)
@@ -65,7 +65,7 @@ class ExprRewriter:
                 continue
 
             # Generate target expressions and map source to them
-            if self.is_var:
+            if self.variadic:
                 # noinspection PyTypeChecker
                 tgt_expr = self.build_variadic(self.src_outs[0], self.tgt_outs[0], pat_to_expr)
             else:
@@ -196,6 +196,7 @@ class ExprRewriter:
                 # Update matched nodes and expressions
                 output_matched.append(e)
                 found = True
+                stack.clear()
                 break
 
             # No match for this pattern, the whole match failed
@@ -263,6 +264,7 @@ class ExprRewriter:
                 # Add matched expression to record
                 out_matched.append(e)
                 found = True
+                stack.clear()
                 break
 
             # No more match for this pattern
@@ -361,20 +363,18 @@ class _RelayBuilder(PatternVisitor[Env]):
             return expr
 
     def visit_const(self, const: pat.Const, env: Env) -> relay.Expr:
-        if isinstance(const.value, np.ndarray):
-            value = const.value
-        elif isinstance(const.value, Attr):
-            value = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
-                .visit(const.value, env)
+        if isinstance(const.val_, np.ndarray):
+            value = const.val_
+        elif isinstance(const.val_, Attr):
+            value = self._eval_attr(const.val_, env)
         else:
             raise RuntimeError('Unreachable.')
-        return relay.const(value)
+        dtype = self._eval_attr(const.dtype_, env)
+        return relay.const(np.array(value, dtype=dtype))
 
     def visit_call(self, call: pat.Call, env: Env) -> relay.Expr:
         args = [self.visit(a, env) for a in call.args]
-        attrs = dict([(name, AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his).
-                       visit(attr, env))
-                      for name, attr in call.attrs.items()])
+        attrs = dict([(name, self._eval_attr(attr, env)) for name, attr in call.attrs.items()])
         op_name = self.visit_op(call.op, env)
         api = spec.get_api(op_name)
         try:
@@ -396,19 +396,24 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_getitem(self, getitem: pat.GetItem, env: Env) -> relay.Expr:
         tup = self.visit(getitem.tup, env)
-        idx = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
-            .visit(getitem.idx, env)
+        idx = self._eval_attr(getitem.idx, env)
         return tup[idx]
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> relay.Expr:
-        pred = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
-            .visit(cond.predicate, env)
+        pred = self._eval_attr(cond.predicate, env)
         return self.visit(cond.then_pat, env) if pred else self.visit(cond.else_pat, env)
+
+    def visit_match(self, match: pat.Match, env: Env) -> relay.Expr:
+        alt = match.alt
+        if alt.matched_idx is None:
+            raise RuntimeError(
+                'None of the alternative pattern is matched.'
+            )
+        return self.visit(match.clauses[alt.matched_idx], env)
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
-        length = AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his) \
-            .visit(var.len, env)
+        length = self._eval_attr(var.len, env)
 
         # Create fields
         fields: List[relay.Expr] = []
@@ -424,6 +429,9 @@ class _RelayBuilder(PatternVisitor[Env]):
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> relay.Expr:
         inst = eval_get_inst(get_inst, self.pat_to_expr, self.ty_map, env, self.eval_his)
         return self.pat_to_expr[inst]
+
+    def _eval_attr(self, attr: Attr, env: Env):
+        return AttrEvaluator(self.pat_to_expr, self.ty_map, self.eval_his).visit(attr, env)
 
 
 class _RewriteMutator(relay.ExprMutator):

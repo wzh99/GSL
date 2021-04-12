@@ -100,6 +100,8 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
             return self._get_tensor_attr(expr, name)
         elif isinstance(p, pat.Call) and expr.attrs is not None and name in expr.attrs.keys():
             return expr.attrs[name]
+        elif isinstance(p, pat.Const) and name == 'value':
+            return expr.data
         elif isinstance(p, pat.GetItem) and name == 'index':
             return expr.index
         else:
@@ -195,6 +197,14 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
                 'Predicate of condition cannot be evaluated to a boolean value.'
             )
         return self.visit(cond.then_br, env) if pv else self.visit(cond.else_br, env)
+
+    def visit_match(self, match: attr.Match, env: Env):
+        alt = match.alt
+        if alt.matched_idx is None:
+            raise RuntimeError(
+                'None of the alternative pattern is matched.'
+            )
+        return self.visit(match.clauses[alt.matched_idx], env)
 
     def visit_symbol(self, sym: attr.Symbol, env: Env):
         val = env[sym]

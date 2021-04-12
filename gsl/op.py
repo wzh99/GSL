@@ -33,12 +33,36 @@ class Zeros(Call):
         }))
 
 
+class ZerosLike(Call):
+    def __init__(self, data: PatternLike):
+        super().__init__('zeros_like', data)
+
+
 class Ones(Call):
     def __init__(self, shape: Union[tuple, Attr, None] = None,
                  dtype: Union[str, Attr, None] = None):
         super().__init__('ones', **pat.filter_attrs({
             'shape': shape, 'dtype': dtype,
         }))
+
+
+class OnesLike(Call):
+    def __init__(self, data: PatternLike):
+        super().__init__('ones_like', data)
+
+
+class Full(Call):
+    def __init__(self, fill_value: PatternLike,
+                 shape: Union[tuple, Attr, None] = None,
+                 dtype: Union[str, Attr, None] = None):
+        super().__init__('full', fill_value, **pat.filter_attrs({
+            'shape': shape, 'dtype': dtype,
+        }))
+
+
+class FullLike(Call):
+    def __init__(self, data: PatternLike, fill_value: PatternLike):
+        super().__init__('full_like', data, fill_value)
 
 
 class Concatenate(Call):

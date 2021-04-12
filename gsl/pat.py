@@ -15,10 +15,11 @@ class Pattern:
     NOT_IN_SRC = -1
 
     def __init__(self):
+        self.injective = True
         self.succ: List[Pattern] = []
         self.src_idx = self.NOT_IN_SRC
         self.in_tgt = False
-        self.is_template = False
+        self.is_tpl = False
         self.free_sym: Set[Symbol] = set()
 
     @property
@@ -39,7 +40,7 @@ class Pattern:
 
     @property
     def src_succ(self) -> List['Pattern']:
-        return list(filter(lambda p: p.in_src and not p.is_template, self.succ))
+        return list(filter(lambda p: p.in_src and not p.is_tpl, self.succ))
 
     @property
     def is_used(self) -> bool:
@@ -193,16 +194,17 @@ def filter_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
     return filtered
 
 
-ConstValueType = Union[int, float, list, np.ndarray, attr.Attr]
+ConstValueType = Union[int, float, list, np.ndarray, Attr]
 
 
 class Const(Pattern):
     """
     A constant nodes stores constants in graph.
     """
-    value_class = (int, float, list, np.ndarray, attr.Attr)
+    value_class = (int, float, list, np.ndarray, Attr)
 
-    def __init__(self, value: Union[ConstValueType, attr.Attr, None]):
+    def __init__(self, value: Union[ConstValueType, Attr, None] = None,
+                 dtype: AttrLike = None):
         """
         Constructor.
 
@@ -211,27 +213,32 @@ class Const(Pattern):
             target graph, the value will be copied to new graph. New constant nodes can be created
             in target graph. In target graph, the constant nodes can also be specified by an
             attribute expression with respect to nodes in source graph.
+        :param dtype: Indicate data type to store constant value. Only effective during rewrite.
         """
         super().__init__()
         if value is None:
-            self.value = None
+            self.val_ = None
         elif isinstance(value, (Attr, np.ndarray)):
-            self.value = value
+            self.val_ = value
         elif isinstance(value, (int, float, list)):
-            self.value = np.array(value)
+            self.val_ = np.array(value)
         else:
             raise TypeError(
                 'Cannot create constant node from value of type {}.'.format(value.__class__)
             )
+        self.dtype_ = attr.to_attr(dtype)
         self._update_free_sym()
 
     @property
     def avail_attrs(self) -> List[str]:
-        return self.tensor_attrs
+        return self.tensor_attrs + ['value']
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return [self.value] if isinstance(self.value, Attr) else []
+        expr = [self.dtype_]
+        if isinstance(self.val_, Attr):
+            expr.append(self.val_)
+        return expr
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_const(self, arg)
@@ -423,6 +430,58 @@ class Cond(Pattern):
         return visitor.visit_cond(self, arg)
 
 
+class Alt(Pattern):
+    """
+    Try matching expression with given patterns in order until one is matched.
+    This pattern can only be used in match process of single pattern.
+    """
+
+    def __init__(self, *pats: PatternLike):
+        if len(pats) < 2:
+            raise ValueError(
+                'Must provide at least two alternative patterns.'
+            )
+
+        super().__init__()
+        self.pats = [to_pat(p) for p in pats]
+        self.matched_idx: Optional[int] = None
+        self._update_free_sym()
+
+    @property
+    def pred(self) -> List['Pattern']:
+        return self.pats
+
+    def has_attr(self, name: str) -> bool:
+        return all([p.has_attr(name) for p in self.pats])
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_alt(self, arg)
+
+
+class Match(Pattern):
+    """
+    Produce different patterns according to matched alternative pattern.
+    This pattern can only be used in rewrite process.
+    """
+
+    def __init__(self, alt: Alt, clauses: List[PatternLike]):
+        super().__init__()
+        if len(clauses) != len(alt.pats):
+            raise ValueError(
+                'Expect {} clauses, got {}.'.format(len(alt.pats), len(clauses))
+            )
+        self.alt = alt
+        self.clauses = [to_pat(p) for p in clauses]
+        self._update_free_sym()
+
+    @property
+    def pred(self) -> List['Pattern']:
+        return self.clauses + [self.alt]
+
+    def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
+        return visitor.visit_match(self, arg)
+
+
 class Variadic(Pattern):
     """
     Matches tuple with arbitrary input, each with the same pattern. It can also be used to specify
@@ -494,7 +553,7 @@ class Variadic(Pattern):
                 raise TypeError(
                     'Template and first pattern must be of same type.'
                 )
-            t.is_template = True
+            t.is_tpl = True
 
         # Initialize index and length
         self.index = index
@@ -584,7 +643,7 @@ class Variadic(Pattern):
 
 
 class GetInst(Pattern):
-    def __init__(self, var: Variadic, tpl: Pattern, index: attr.AttrLike):
+    def __init__(self, var: Variadic, tpl: Pattern, index: AttrLike):
         super().__init__()
         self.var = var
         self.tpl = tpl
@@ -645,6 +704,15 @@ class PatternVisitor(Generic[ArgType]):
         self.visit(cond.then_pat, arg)
         self.visit(cond.else_pat, arg)
 
+    def visit_alt(self, alt: Alt, arg: ArgType) -> Any:
+        for p in alt.pats:
+            self.visit(p, arg)
+
+    def visit_match(self, match: Match, arg: ArgType) -> Any:
+        self.visit(match.alt, arg)
+        for c in match.clauses:
+            self.visit(c, arg)
+
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
         self.visit(var.field, arg)
 
@@ -666,7 +734,7 @@ class _PatInst(PatternVisitor[None]):
             else:
                 # Instantiate template and copy attributes to instance
                 inst = super().visit(pat, arg)
-                inst.is_template = False
+                inst.is_tpl = False
                 inst.src_idx = pat.src_idx
                 inst.in_tgt = pat.in_tgt
                 self.map[pat] = inst  # map template to created instance
@@ -682,7 +750,7 @@ class _PatInst(PatternVisitor[None]):
         return Variable(**var.attrs)
 
     def visit_const(self, const: Const, arg: None) -> Pattern:
-        return Const(const.value)
+        return Const(const.val_)
 
     def visit_op(self, op: Op, arg: ArgType) -> Any:
         if isinstance(op, ConcreteOp):
@@ -694,12 +762,11 @@ class _PatInst(PatternVisitor[None]):
 
     def visit_call(self, call: Call, arg: None) -> Pattern:
         op = self.visit(call.op, arg)
-        args = self._visit_pred(call, arg)
+        args = [self.visit(p, arg) for p in call.args]
         return Call(op, *args, **call.attrs)
 
     def visit_tuple(self, tup: Tuple, arg: None) -> Pattern:
-        fields = self._visit_pred(tup, arg)
-        return Tuple(*fields)
+        return Tuple(*[self.visit(f, arg) for f in tup.fields])
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Pattern:
         return GetItem(self.visit(getitem.tup, arg), getitem.idx)
@@ -708,11 +775,14 @@ class _PatInst(PatternVisitor[None]):
         return Cond(cond.predicate, self.visit(cond.then_pat, arg),
                     self.visit(cond.else_pat, arg))
 
+    def visit_alt(self, alt: Alt, arg: ArgType) -> Pattern:
+        return Alt(*[self.visit(p, arg) for p in alt.pats])
+
+    def visit_match(self, match: Match, arg: ArgType) -> Pattern:
+        return Match(match.alt, [self.visit(p, arg) for p in match.clauses])
+
     def visit_variadic(self, var: Variadic, arg: None) -> Pattern:
         raise RuntimeError('Unreachable.')
 
     def visit_get_instance(self, get_inst: GetInst, arg: None) -> Pattern:
         return GetInst(get_inst.var, get_inst.tpl, get_inst.idx)
-
-    def _visit_pred(self, pat: Pattern, arg: None) -> List[Pattern]:
-        return [self.visit(p, arg) for p in pat.pred]

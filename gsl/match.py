@@ -17,7 +17,7 @@ class Matcher:
             return self.pat_to_expr[p] == expr
 
         # Reject if the expression has been matched with another node
-        if self.pat_to_expr.has_expr(expr):
+        if p.injective and self.pat_to_expr.has_expr(expr):
             return False
 
         # Try matching according to pattern node type
@@ -35,6 +35,8 @@ class Matcher:
             res = self.match_tuple(p, expr, env)
         elif isinstance(p, pat.GetItem):
             res = self.match_getitem(p, expr, env)
+        elif isinstance(p, pat.Alt):
+            res = self.match_alt(p, expr, env)
         elif isinstance(p, pat.Variadic):
             res = self.match_variadic(p, expr, env)
         elif isinstance(p, pat.GetInst):
@@ -66,12 +68,14 @@ class Matcher:
             return False
 
         # Match value if provided
+        if const.val_ is None:
+            return True
         expr_val = expr.data.asnumpy()
-        if isinstance(const.value, np.ndarray):
-            if not np.array_equal(const.value, expr_val):
+        if isinstance(const.val_, np.ndarray):
+            if not np.array_equal(const.val_, expr_val):
                 return False
-        if isinstance(const.value, attr.Attr):
-            pat_val = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(const.value, env)
+        if isinstance(const.val_, attr.Attr):
+            pat_val = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(const.val_, env)
             if not np.array_equal(pat_val, expr_val):
                 return False
 
@@ -139,6 +143,16 @@ class Matcher:
         if not self.match(getitem.tup, expr.tuple_value, env):
             return False
         return self.match_attr(getitem.idx, expr.index, env)
+
+    def match_alt(self, alt: pat.Alt, expr: relay.Expr, env: Env) -> bool:
+        rec = self.pat_to_expr.record()
+        for idx in range(len(alt.pats)):
+            if self.match(alt.pats[idx], expr, env):
+                alt.matched_idx = idx
+                return True
+            else:
+                rec.restore()
+        return False
 
     def match_variadic(self, var: pat.Variadic, expr: relay.Expr, env: Env) -> bool:
         # Matches tuple node
