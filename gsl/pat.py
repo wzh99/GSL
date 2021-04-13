@@ -16,11 +16,11 @@ class Pattern:
 
     def __init__(self):
         self.injective = True
-        self.succ: List[Pattern] = []
-        self.src_idx = self.NOT_IN_SRC
-        self.in_tgt = False
-        self.is_tpl = False
-        self.free_sym: Set[Symbol] = set()
+        self.succ_: List[Pattern] = []
+        self.src_idx_ = self.NOT_IN_SRC
+        self.in_tgt_ = False
+        self.is_tpl_ = False
+        self.free_sym_: Set[Symbol] = set()
 
     @property
     def pred(self) -> List['Pattern']:
@@ -28,23 +28,23 @@ class Pattern:
 
     def update_pred_succ(self):
         for p in self.pred:
-            p.succ.append(self)
+            p.succ_.append(self)
 
     @property
     def is_output(self) -> bool:
-        return len(self.succ) == 0
+        return len(self.succ_) == 0
 
     @property
     def in_src(self) -> bool:
-        return self.src_idx != self.NOT_IN_SRC
+        return self.src_idx_ != self.NOT_IN_SRC
 
     @property
     def src_succ(self) -> List['Pattern']:
-        return list(filter(lambda p: p.in_src and not p.is_tpl, self.succ))
+        return list(filter(lambda p: p.in_src and not p.is_tpl_, self.succ_))
 
     @property
     def is_used(self) -> bool:
-        return self.in_src or self.in_tgt
+        return self.in_src or self.in_tgt_
 
     def check_all(self, predicate: Callable[['Pattern'], bool]) -> bool:
         if not predicate(self):
@@ -81,13 +81,13 @@ class Pattern:
 
     @property
     def has_free_sym(self):
-        return len(self.free_sym) != 0
+        return len(self.free_sym_) != 0
 
     def _update_free_sym(self):
-        self.free_sym = reduce(
-            set.union, map(lambda p: p.free_sym, self.pred), set()
+        self.free_sym_ = reduce(
+            set.union, map(lambda p: p.free_sym_, self.pred), set()
         ).union(reduce(
-            set.union, map(lambda a: a.free_sym, self.attr_expr), set()
+            set.union, map(lambda a: a.free_sym_, self.attr_expr), set()
         )).difference(self.bounded_sym)
 
     def __getitem__(self, *item):
@@ -164,13 +164,13 @@ class Variable(Pattern):
         super().__init__()
 
         # Check attributes for variable
-        self.attrs: Dict[str, Attr] = {}
+        self.attrs_: Dict[str, Attr] = {}
         raw_attrs = filter_attrs(dict(zip(
             self.tensor_attrs,
             [shape, dtype, ndim]
         )))
         for n, a in raw_attrs.items():
-            self.attrs[n] = attr.to_attr(a)
+            self.attrs_[n] = attr.to_attr(a)
 
         self._update_free_sym()
 
@@ -180,7 +180,7 @@ class Variable(Pattern):
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return list(self.attrs.values())
+        return list(self.attrs_.values())
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_variable(self, arg)
@@ -276,19 +276,19 @@ class Op(Pattern):
 class ConcreteOp(Op):
     def __init__(self, name: str):
         super().__init__()
-        self.name = name
+        self.name_ = name
 
     def __str__(self):
-        return self.name
+        return self.name_
 
 
 class OpWithTrait(Op):
     def __init__(self, trait: spec.OpTrait):
         super().__init__()
-        self.trait = trait
+        self.trait_ = trait
 
     def __str__(self):
-        return self.trait.name
+        return self.trait_.name
 
 
 class Call(Pattern):
@@ -299,40 +299,40 @@ class Call(Pattern):
     def __init__(self, op: Union[Pattern, str, spec.OpTrait], *args: PatternLike,
                  **raw_attrs: AttrLike):
         super().__init__()
-        self.args = [to_pat(a) for a in args]
+        self.args_ = [to_pat(a) for a in args]
 
         # Convert valid alternatives of Op to node
         if isinstance(op, str):
             op = ConcreteOp(op)
         elif isinstance(op, spec.OpTrait):
             op = OpWithTrait(op)
-        self.op: Pattern = op
+        self.op_: Pattern = op
 
         # Check number of inputs
         if isinstance(op, ConcreteOp):
-            num_input = spec.get_num_inputs(op.name)
+            num_input = spec.get_num_inputs(op.name_)
             if num_input != len(args):
                 raise ValueError(
                     'Expect {} input tensor(s), got {}.'.format(num_input, len(args))
                 )
 
         # Convert raw attribute values to attribute nodes if necessary
-        self.attrs = dict([(name, attr.to_attr(val)) for name, val in raw_attrs.items()])
+        self.attrs_ = dict([(name, attr.to_attr(val)) for name, val in raw_attrs.items()])
 
         # Check if specified attributes really exists in op
         if isinstance(op, ConcreteOp):
-            attr_names = spec.get_op_attr_names(op.name)
-            for name in self.attrs.keys():
+            attr_names = spec.get_op_attr_names(op.name_)
+            for name in self.attrs_.keys():
                 if name not in attr_names:
                     raise AttributeError(
-                        'Attribute \'{}\' not found in op \'{}\'.'.format(name, op.name)
+                        'Attribute \'{}\' not found in op \'{}\'.'.format(name, op.name_)
                     )
 
         self._update_free_sym()
 
     @property
     def pred(self):
-        return self.args
+        return self.args_
 
     @property
     def avail_attrs(self) -> List[str]:
@@ -340,13 +340,13 @@ class Call(Pattern):
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return list(self.attrs.values())
+        return list(self.attrs_.values())
 
     def has_attr(self, name: str) -> bool:
         if name in self.avail_attrs:
             return True
-        if isinstance(self.op, ConcreteOp):
-            attr_names = spec.get_op_attr_names(self.op.name)
+        if isinstance(self.op_, ConcreteOp):
+            attr_names = spec.get_op_attr_names(self.op_.name_)
             return name in attr_names
         else:
             return True
@@ -371,12 +371,12 @@ def same_attr(pat: Pattern, attrs: List[str]) -> Dict[str, attr.Attr]:
 class Tuple(Pattern):
     def __init__(self, *raw_fields: PatternLike):
         super().__init__()
-        self.fields = [to_pat(f) for f in raw_fields]
+        self.fields_ = [to_pat(f) for f in raw_fields]
         self._update_free_sym()
 
     @property
     def pred(self):
-        return self.fields
+        return self.fields_
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_tuple(self, arg)
@@ -385,13 +385,13 @@ class Tuple(Pattern):
 class GetItem(Pattern):
     def __init__(self, tup: Pattern, index: AttrLike = None):
         super().__init__()
-        self.tup = tup
-        self.idx = attr.to_attr(index)
+        self.tup_ = tup
+        self.idx_ = attr.to_attr(index)
         self._update_free_sym()
 
     @property
     def pred(self):
-        return [self.tup]
+        return [self.tup_]
 
     @property
     def avail_attrs(self) -> List[str]:
@@ -399,7 +399,7 @@ class GetItem(Pattern):
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return [self.idx]
+        return [self.idx_]
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_getitem(self, arg)
@@ -413,18 +413,18 @@ class Cond(Pattern):
 
     def __init__(self, predicate: attr.AttrLike, then_pat: PatternLike, else_pat: PatternLike):
         super().__init__()
-        self.predicate = attr.to_attr(predicate)
-        self.then_pat = to_pat(then_pat)
-        self.else_pat = to_pat(else_pat)
+        self.predicate_ = attr.to_attr(predicate)
+        self.then_pat_ = to_pat(then_pat)
+        self.else_pat_ = to_pat(else_pat)
         self._update_free_sym()
 
     @property
     def pred(self) -> List[Pattern]:
-        return [self.then_pat, self.else_pat]
+        return [self.then_pat_, self.else_pat_]
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return [self.predicate]
+        return [self.predicate_]
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_cond(self, arg)
@@ -443,16 +443,16 @@ class Alt(Pattern):
             )
 
         super().__init__()
-        self.pats = [to_pat(p) for p in pats]
+        self.pats_ = [to_pat(p) for p in pats]
         self.matched_idx: Optional[int] = None
         self._update_free_sym()
 
     @property
     def pred(self) -> List['Pattern']:
-        return self.pats
+        return self.pats_
 
     def has_attr(self, name: str) -> bool:
-        return all([p.has_attr(name) for p in self.pats])
+        return all([p.has_attr(name) for p in self.pats_])
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_alt(self, arg)
@@ -466,17 +466,17 @@ class Match(Pattern):
 
     def __init__(self, alt: Alt, clauses: List[PatternLike]):
         super().__init__()
-        if len(clauses) != len(alt.pats):
+        if len(clauses) != len(alt.pats_):
             raise ValueError(
-                'Expect {} clauses, got {}.'.format(len(alt.pats), len(clauses))
+                'Expect {} clauses, got {}.'.format(len(alt.pats_), len(clauses))
             )
-        self.alt = alt
-        self.clauses = [to_pat(p) for p in clauses]
+        self.alt_ = alt
+        self.clauses_ = [to_pat(p) for p in clauses]
         self._update_free_sym()
 
     @property
     def pred(self) -> List['Pattern']:
-        return self.clauses + [self.alt]
+        return self.clauses_ + [self.alt_]
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_match(self, arg)
@@ -516,7 +516,7 @@ class Variadic(Pattern):
         super().__init__()
 
         # Initialize field
-        self.field = field
+        self.field_ = field
 
         # Check templates
         if templates is not None and len(templates) > 0:  # at least one pattern is a template
@@ -537,10 +537,10 @@ class Variadic(Pattern):
             first = []
 
         # Map template to first
-        self.templates: List[Pattern] = templates
-        self.first: List[Optional[Pattern]] = first
-        self.tpl_to_fst = dict(zip(templates, first))
-        for t, f in self.tpl_to_fst.items():
+        self.templates_: List[Pattern] = templates
+        self.first_: List[Optional[Pattern]] = first
+        self.tpl_to_fst_ = dict(zip(templates, first))
+        for t, f in self.tpl_to_fst_.items():
             if isinstance(t, Variadic):
                 raise TypeError(
                     'Variadic cannot be a template pattern.'
@@ -553,24 +553,24 @@ class Variadic(Pattern):
                 raise TypeError(
                     'Template and first pattern must be of same type.'
                 )
-            t.is_tpl = True
+            t.is_tpl_ = True
 
         # Initialize index and length
-        self.index = index
-        self.len: Optional[attr.Attr] = None
+        self.index_ = index
+        self.len_: Optional[attr.Attr] = None
         if length is not None:
-            self.len = attr.to_attr(length)
-        self.min_len = min_len
+            self.len_ = attr.to_attr(length)
+        self.min_len_ = min_len
 
         # Initialize records during substitution
-        self.field_inst: List[Pattern] = []
-        self.tpl_inst: List[Dict[Pattern, Pattern]] = []
+        self.field_inst_: List[Pattern] = []
+        self.tpl_inst_: List[Dict[Pattern, Pattern]] = []
 
         self._update_free_sym()
 
     @property
     def pred(self):
-        return [self.field]
+        return [self.field_]
 
     @property
     def avail_attrs(self) -> List[str]:
@@ -578,26 +578,26 @@ class Variadic(Pattern):
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return [] if self.len is None else [self.len]
+        return [] if self.len_ is None else [self.len_]
 
     @property
     def bounded_sym(self) -> List[Symbol]:
-        return [] if self.index is None else [self.index]
+        return [] if self.index_ is None else [self.index_]
 
     def __call__(self, tpl: Pattern, index: attr.AttrLike):
-        if tpl not in self.templates:
+        if tpl not in self.templates_:
             raise ValueError('Pattern is not template of this variadic.')
         return GetInst(self, tpl, attr.to_attr(index))
 
     def __len__(self) -> int:
-        return len(self.field_inst)
+        return len(self.field_inst_)
 
     def get_inst(self, idx: int, t: Pattern):
         if idx >= len(self):
             raise RuntimeError(
                 'Index {} out of bound {}.'.format(idx, len(self))
             )
-        inst_map = self.tpl_inst[idx]
+        inst_map = self.tpl_inst_[idx]
         if t not in inst_map:
             raise RuntimeError(
                 'Template pattern not found in instance mapping.'
@@ -606,37 +606,37 @@ class Variadic(Pattern):
 
     def clear(self):
         super().clear()
-        while len(self.field_inst) > 0:
+        while len(self.field_inst_) > 0:
             self.rollback()
 
     def has_first(self, t: Pattern) -> bool:
-        return self.tpl_to_fst[t] is not None
+        return self.tpl_to_fst_[t] is not None
 
     def instantiate(self) -> Pattern:
         # Instantiate templates
         visitor = _PatInst(self)
-        field = visitor.visit(self.field, None)
+        field = visitor.visit(self.field_, None)
         inst_map = visitor.map
 
         # Maps templates to first instances
         if len(self) == 0:
-            for tpl in self.templates:
+            for tpl in self.templates_:
                 if self.has_first(tpl):
-                    inst_map[tpl] = self.tpl_to_fst[tpl]
+                    inst_map[tpl] = self.tpl_to_fst_[tpl]
 
         # Add record
-        self.field_inst.append(field)
-        self.tpl_inst.append(inst_map)
+        self.field_inst_.append(field)
+        self.tpl_inst_.append(inst_map)
 
         return field
 
     def rollback(self):
-        self.field_inst.pop()
-        inst_map = self.tpl_inst.pop()
+        self.field_inst_.pop()
+        inst_map = self.tpl_inst_.pop()
         for tpl, inst in inst_map.items():
-            if inst not in self.first:
+            if inst not in self.first_:
                 for p in inst.pred:
-                    p.succ.remove(inst)
+                    p.succ_.remove(inst)
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_variadic(self, arg)
@@ -645,18 +645,18 @@ class Variadic(Pattern):
 class GetInst(Pattern):
     def __init__(self, var: Variadic, tpl: Pattern, index: AttrLike):
         super().__init__()
-        self.var = var
-        self.tpl = tpl
-        self.idx = attr.to_attr(index)
+        self.var_ = var
+        self.tpl_ = tpl
+        self.idx_ = attr.to_attr(index)
         self._update_free_sym()
 
     @property
     def avail_attrs(self) -> List[str]:
-        return self.tpl.avail_attrs
+        return self.tpl_.avail_attrs
 
     @property
     def attr_expr(self) -> List[Attr]:
-        return [self.idx]
+        return [self.idx_]
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_get_instance(self, arg)
@@ -689,35 +689,35 @@ class PatternVisitor(Generic[ArgType]):
         pass
 
     def visit_call(self, call: Call, arg: ArgType) -> Any:
-        self.visit(call.op, arg)
-        for a in call.args:
+        self.visit(call.op_, arg)
+        for a in call.args_:
             self.visit(a, arg)
 
     def visit_tuple(self, tup: Tuple, arg: ArgType) -> Any:
-        for f in tup.fields:
+        for f in tup.fields_:
             self.visit(f, arg)
 
     def visit_getitem(self, getitem: GetItem, arg: ArgType) -> Any:
-        self.visit(getitem.tup, arg)
+        self.visit(getitem.tup_, arg)
 
     def visit_cond(self, cond: Cond, arg: ArgType) -> Any:
-        self.visit(cond.then_pat, arg)
-        self.visit(cond.else_pat, arg)
+        self.visit(cond.then_pat_, arg)
+        self.visit(cond.else_pat_, arg)
 
     def visit_alt(self, alt: Alt, arg: ArgType) -> Any:
-        for p in alt.pats:
+        for p in alt.pats_:
             self.visit(p, arg)
 
     def visit_match(self, match: Match, arg: ArgType) -> Any:
-        self.visit(match.alt, arg)
-        for c in match.clauses:
+        self.visit(match.alt_, arg)
+        for c in match.clauses_:
             self.visit(c, arg)
 
     def visit_variadic(self, var: Variadic, arg: ArgType) -> Any:
-        self.visit(var.field, arg)
+        self.visit(var.field_, arg)
 
     def visit_get_instance(self, get_inst: GetInst, arg: ArgType) -> Any:
-        self.visit(get_inst.var, arg)
+        self.visit(get_inst.var_, arg)
 
 
 class _PatInst(PatternVisitor[None]):
@@ -728,15 +728,15 @@ class _PatInst(PatternVisitor[None]):
         self.map: Dict[Pattern, Pattern] = {}  # template-instance map
 
     def visit(self, pat: Pattern, arg: None) -> Pattern:
-        if pat in self.var.templates:  # current pattern is a template
+        if pat in self.var.templates_:  # current pattern is a template
             if self.index == 0 and self.var.has_first(pat):  # this template has first instance
-                inst: Pattern = self.var.tpl_to_fst[pat]
+                inst: Pattern = self.var.tpl_to_fst_[pat]
             else:
                 # Instantiate template and copy attributes to instance
                 inst = super().visit(pat, arg)
-                inst.is_tpl = False
-                inst.src_idx = pat.src_idx
-                inst.in_tgt = pat.in_tgt
+                inst.is_tpl_ = False
+                inst.src_idx_ = pat.src_idx_
+                inst.in_tgt_ = pat.in_tgt_
                 self.map[pat] = inst  # map template to created instance
                 inst.update_pred_succ()
             return inst
@@ -747,7 +747,7 @@ class _PatInst(PatternVisitor[None]):
         return Wildcard()
 
     def visit_variable(self, var: Variable, arg: None) -> Pattern:
-        return Variable(**var.attrs)
+        return Variable(**var.attrs_)
 
     def visit_const(self, const: Const, arg: None) -> Pattern:
         return Const(const.val_)
@@ -761,28 +761,28 @@ class _PatInst(PatternVisitor[None]):
             raise RuntimeError('Unreachable.')
 
     def visit_call(self, call: Call, arg: None) -> Pattern:
-        op = self.visit(call.op, arg)
-        args = [self.visit(p, arg) for p in call.args]
-        return Call(op, *args, **call.attrs)
+        op = self.visit(call.op_, arg)
+        args = [self.visit(p, arg) for p in call.args_]
+        return Call(op, *args, **call.attrs_)
 
     def visit_tuple(self, tup: Tuple, arg: None) -> Pattern:
-        return Tuple(*[self.visit(f, arg) for f in tup.fields])
+        return Tuple(*[self.visit(f, arg) for f in tup.fields_])
 
     def visit_getitem(self, getitem: GetItem, arg: None) -> Pattern:
-        return GetItem(self.visit(getitem.tup, arg), getitem.idx)
+        return GetItem(self.visit(getitem.tup_, arg), getitem.idx_)
 
     def visit_cond(self, cond: Cond, arg: None) -> Pattern:
-        return Cond(cond.predicate, self.visit(cond.then_pat, arg),
-                    self.visit(cond.else_pat, arg))
+        return Cond(cond.predicate_, self.visit(cond.then_pat_, arg),
+                    self.visit(cond.else_pat_, arg))
 
     def visit_alt(self, alt: Alt, arg: ArgType) -> Pattern:
-        return Alt(*[self.visit(p, arg) for p in alt.pats])
+        return Alt(*[self.visit(p, arg) for p in alt.pats_])
 
     def visit_match(self, match: Match, arg: ArgType) -> Pattern:
-        return Match(match.alt, [self.visit(p, arg) for p in match.clauses])
+        return Match(match.alt_, [self.visit(p, arg) for p in match.clauses_])
 
     def visit_variadic(self, var: Variadic, arg: None) -> Pattern:
         raise RuntimeError('Unreachable.')
 
     def visit_get_instance(self, get_inst: GetInst, arg: None) -> Pattern:
-        return GetInst(get_inst.var, get_inst.tpl, get_inst.idx)
+        return GetInst(get_inst.var_, get_inst.tpl_, get_inst.idx_)

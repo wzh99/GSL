@@ -56,7 +56,7 @@ class Matcher:
 
         # Match attributes
         ty = expr.checked_type
-        for n, a in var.attrs.items():
+        for n, a in var.attrs_.items():
             if not self.match_attr(a, util.get_tensor_type_attr(ty, n), env):
                 return False
 
@@ -87,20 +87,20 @@ class Matcher:
             return False
 
         # Match op
-        if not self.match(call.op, expr.op, env):
+        if not self.match(call.op_, expr.op, env):
             return False
 
         # Match arguments
         # Arguments must be matched before attributes, because attribute matching may depend on
         # match result of arguments.
-        if len(call.args) != len(expr.args):
+        if len(call.args_) != len(expr.args):
             return False
-        for pa, ea in zip(call.args, expr.args):
+        for pa, ea in zip(call.args_, expr.args):
             if not self.match(pa, ea, env):
                 return False
 
         # Match attributes
-        for n, a in call.attrs.items():
+        for n, a in call.attrs_.items():
             if (expr.attrs is None) or (n not in expr.attrs.keys()):
                 raise RuntimeError(
                     'Attribute \'{}\' not found in op \'{}\'.'.format(n, expr.op.name)
@@ -115,9 +115,9 @@ class Matcher:
         if not isinstance(expr_op, ir.Op):
             return False
         if isinstance(pat_op, pat.ConcreteOp):
-            return pat_op.name == expr_op.name
+            return pat_op.name_ == expr_op.name
         elif isinstance(pat_op, pat.OpWithTrait):
-            return spec.match_trait(expr_op.name, pat_op.trait)
+            return spec.match_trait(expr_op.name, pat_op.trait_)
         else:
             raise RuntimeError('Unreachable.')
 
@@ -127,11 +127,11 @@ class Matcher:
             return False
 
         # Check number of fields
-        if len(tup.fields) != len(expr.fields):
+        if len(tup.fields_) != len(expr.fields):
             return False
 
         # Match fields
-        for pat_f, expr_f in zip(tup.fields, expr.fields):
+        for pat_f, expr_f in zip(tup.fields_, expr.fields):
             if not self.match(pat_f, expr_f, env):
                 return False
 
@@ -140,14 +140,14 @@ class Matcher:
     def match_getitem(self, getitem: pat.GetItem, expr: relay.Expr, env: Env) -> bool:
         if not isinstance(expr, relay.TupleGetItem):
             return False
-        if not self.match(getitem.tup, expr.tuple_value, env):
+        if not self.match(getitem.tup_, expr.tuple_value, env):
             return False
-        return self.match_attr(getitem.idx, expr.index, env)
+        return self.match_attr(getitem.idx_, expr.index, env)
 
     def match_alt(self, alt: pat.Alt, expr: relay.Expr, env: Env) -> bool:
         rec = self.pat_to_expr.record()
-        for idx in range(len(alt.pats)):
-            if self.match(alt.pats[idx], expr, env):
+        for idx in range(len(alt.pats_)):
+            if self.match(alt.pats_[idx], expr, env):
                 alt.matched_idx = idx
                 return True
             else:
@@ -160,8 +160,8 @@ class Matcher:
             return False
 
         # Match length if provided
-        if var.len is not None:
-            length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(var.len, env)
+        if var.len_ is not None:
+            length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(var.len_, env)
             if length != len(expr.fields):
                 return False
 
@@ -169,8 +169,8 @@ class Matcher:
         for i in range(len(expr.fields)):
             expr_f = expr.fields[i]
             new_env = env
-            if var.index is not None:
-                new_env = env + (var.index, i)
+            if var.index_ is not None:
+                new_env = env + (var.index_, i)
             pat_f = var.instantiate()
             if not self.match(pat_f, expr_f, new_env):
                 return False
@@ -192,16 +192,16 @@ class Matcher:
                 return False
 
             # Check length if provided
-            if pat_attr.len is not None:
-                length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(pat_attr.len, env)
+            if pat_attr.len_ is not None:
+                length = AttrEvaluator(self.pat_to_expr, self.ty_map).visit(pat_attr.len_, env)
                 if length != len(expr_val):
                     return False
 
             # Match fields
             for i in range(len(expr_val)):
-                new_env = env if pat_attr.index is None \
-                    else Env(prev=env, symbol=pat_attr.index, value=i)
-                if not self.match_attr(pat_attr.field, expr_val[i], new_env):
+                new_env = env if pat_attr.index_ is None \
+                    else Env(prev=env, symbol=pat_attr.index_, value=i)
+                if not self.match_attr(pat_attr.field_, expr_val[i], new_env):
                     return False
 
             return True

@@ -77,14 +77,14 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return None
 
     def visit_const(self, const: attr.Const, env: Env):
-        return const.value
+        return const.value_
 
     def visit_getattr(self, get_attr: attr.GetAttr, env: Env):
         # Get actual expression from map
-        p = get_attr.pat
+        p = get_attr.pat_
         if isinstance(p, pat.GetInst):  # map template to instance
             p = eval_get_inst(p, self.pat_to_expr, self.ty_map, env)
-        name = get_attr.name
+        name = get_attr.name_
 
         # Handle variadic pattern
         if isinstance(p, pat.Variadic) and name == 'length':
@@ -120,9 +120,9 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return util.get_tensor_type_attr(ty, name)
 
     def visit_range(self, ran_attr: attr.Range, env: Env):
-        stop = self.visit(ran_attr.stop, env)
-        start = self.visit(ran_attr.start, env)
-        step = self.visit(ran_attr.step, env)
+        stop = self.visit(ran_attr.stop_, env)
+        start = self.visit(ran_attr.start_, env)
+        step = self.visit(ran_attr.step_, env)
         if start is None:
             ran_val = range(stop)
         elif step is None:
@@ -132,33 +132,33 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return tuple(ran_val)
 
     def visit_tuple(self, tup_attr: attr.Tuple, env: Env):
-        return tuple([self.visit(f, env) for f in tup_attr.fields])
+        return tuple([self.visit(f, env) for f in tup_attr.fields_])
 
     def visit_tuple_len(self, tuple_len: attr.TupleLen, env: Env):
-        return len(self.visit(tuple_len.tup, env))
+        return len(self.visit(tuple_len.tup_, env))
 
     def visit_getitem(self, getitem: attr.GetItem, env: Env):
-        return self.visit(getitem.tup, env)[self.visit(getitem.index, env)]
+        return self.visit(getitem.tup_, env)[self.visit(getitem.index_, env)]
 
     def visit_slice(self, slc: attr.Slice, env: Env):
-        start = self.visit(slc.start, env)
-        stop = self.visit(slc.stop, env)
-        step = self.visit(slc.step, env)
+        start = self.visit(slc.start_, env)
+        stop = self.visit(slc.stop_, env)
+        step = self.visit(slc.step_, env)
         return slice(start, stop, step)
 
     def visit_getslice(self, getslice: attr.GetSlice, env: Env):
-        tup = self.visit(getslice.tup, env)
-        slc = self.visit_slice(getslice.slc, env)
+        tup = self.visit(getslice.tup_, env)
+        slc = self.visit_slice(getslice.slc_, env)
         return tup[slc]
 
     def visit_reverse(self, rev: attr.Reverse, env: Env):
-        tup = self.visit(rev.tup, env)
+        tup = self.visit(rev.tup_, env)
         return tuple(reversed(tup))
 
     def visit_unary(self, unary: attr.Unary, env: Env):
-        v = self.visit(unary.attr, env)
+        v = self.visit(unary.attr_, env)
         v_ty = v.__class__
-        uop = unary.op
+        uop = unary.op_
         op_func = attr.Unary.eval_funcs[uop]
         if v_ty not in op_func:
             raise RuntimeError(
@@ -170,17 +170,17 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 
     def visit_binary(self, binary: attr.Binary, env: Env):
         # Evaluate both sides
-        lv, rv = self.visit(binary.lhs, env), self.visit(binary.rhs, env)
+        lv, rv = self.visit(binary.lhs_, env), self.visit(binary.rhs_, env)
 
         # Handle == and !=
-        if binary.op == attr.BinaryOp.EQ:
+        if binary.op_ == attr.BinaryOp.EQ:
             return lv == rv
-        elif binary.op == attr.BinaryOp.NE:
+        elif binary.op_ == attr.BinaryOp.NE:
             return lv != rv
 
         # Evaluate rest ops
         ty_tup = (lv.__class__, rv.__class__)
-        bin_op = binary.op
+        bin_op = binary.op_
         op_func = attr.Binary.eval_func[bin_op]
         if ty_tup not in op_func:
             raise RuntimeError(
@@ -191,20 +191,20 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         return op_func[ty_tup](lv, rv)
 
     def visit_cond(self, cond: attr.Cond, env: Env):
-        pv = self.visit(cond.pred, env)
+        pv = self.visit(cond.pred_, env)
         if not isinstance(pv, bool):
             raise RuntimeError(
                 'Predicate of condition cannot be evaluated to a boolean value.'
             )
-        return self.visit(cond.then_br, env) if pv else self.visit(cond.else_br, env)
+        return self.visit(cond.then_br_, env) if pv else self.visit(cond.else_br_, env)
 
     def visit_match(self, match: attr.Match, env: Env):
-        alt = match.alt
+        alt = match.alt_
         if alt.matched_idx is None:
             raise RuntimeError(
                 'None of the alternative pattern is matched.'
             )
-        return self.visit(match.clauses[alt.matched_idx], env)
+        return self.visit(match.clauses_[alt.matched_idx], env)
 
     def visit_symbol(self, sym: attr.Symbol, env: Env):
         val = env[sym]
@@ -216,36 +216,36 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 
     def visit_variadic(self, var: attr.Variadic, env: Env):
         # Check if length is provided
-        if var.len is None:
+        if var.len_ is None:
             raise RuntimeError(
                 'Cannot evaluate variadic attribute whose length is not specified.'
             )
-        length = self.visit(var.len, env)
+        length = self.visit(var.len_, env)
 
         # Evaluate fields
         fields = []
         for i in range(length):
-            fields.append(self.visit(var.field, env + (var.index, i)))
+            fields.append(self.visit(var.field_, env + (var.index_, i)))
 
         return fields
 
     def visit_map(self, m: attr.Map, env: Env):
-        tup = self.visit(m.tup, env)
-        return tuple(map(lambda e: self.visit(m.body, env + (m.sym, e)), tup))
+        tup = self.visit(m.tup_, env)
+        return tuple(map(lambda e: self.visit(m.body_, env + (m.sym_, e)), tup))
 
     def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
-        length = self.visit(red.len, env)
-        result = self.visit(red.init, env)
+        length = self.visit(red.len_, env)
+        result = self.visit(red.init_, env)
         for i in range(length):
-            elem = self.visit(red.elem, env + (red.index, i))
-            result = self._try_reduce(red.op, result, elem)
+            elem = self.visit(red.elem_, env + (red.index_, i))
+            result = self._try_reduce(red.op_, result, elem)
         return result
 
     def visit_reduce_tuple(self, red: attr.ReduceTuple, env: Env):
-        tup = self.visit(red.tup, env)
+        tup = self.visit(red.tup_, env)
         result = self.visit(red.init, env)
         for elem in tup:
-            result = self._try_reduce(red.op, result, elem)
+            result = self._try_reduce(red.op_, result, elem)
         return result
 
     @classmethod
@@ -262,5 +262,5 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 def eval_get_inst(get_inst: pat.GetInst, pat_to_expr: PatExprMap, ty_map: ExprTypeMap, env: Env,
                   eval_his: Optional[EvalHistory] = None) \
         -> pat.Pattern:
-    idx = AttrEvaluator(pat_to_expr, ty_map, eval_his).visit(get_inst.idx, env)
-    return get_inst.var.get_inst(idx, get_inst.tpl)
+    idx = AttrEvaluator(pat_to_expr, ty_map, eval_his).visit(get_inst.idx_, env)
+    return get_inst.var_.get_inst(idx, get_inst.tpl_)

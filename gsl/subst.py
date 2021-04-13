@@ -59,7 +59,7 @@ class Subst:
         for i in range(len(src_outs)):
             # Check if output nodes have no successors
             out = src_outs[i]
-            if len(out.succ) != 0:
+            if len(out.succ_) != 0:
                 raise ValueError('Source output node cannot have successors.')
 
             # Check pattern graph
@@ -81,7 +81,7 @@ class Subst:
         if self.variadic:
             # noinspection PyTypeChecker
             var: pat.Variadic = src_outs[0]
-            non_tpl = src_pats.difference([var], var.templates, var.first)
+            non_tpl = src_pats.difference([var], var.templates_, var.first_)
             if len(non_tpl) == 0:
                 raise ValueError(
                     'Variadic source pattern has no common nodes.'
@@ -140,7 +140,7 @@ class _SrcPatChecker(PatternVisitor[Env]):
                 'Node in source pattern has been used in other substitutions.'
             )
         super().visit(p, env)
-        p.src_idx = self.idx
+        p.src_idx_ = self.idx
         p.update_pred_succ()
 
     def visit_const(self, const: pat.Const, env: Env) -> Any:
@@ -151,12 +151,12 @@ class _SrcPatChecker(PatternVisitor[Env]):
         super().visit_call(call, env)
 
         # Check if all attribute expressions only contain reference to visited nodes
-        for a in call.attrs.values():
+        for a in call.attrs_.values():
             self.attr_checker.visit(a, env)
 
     def visit_getitem(self, getitem: pat.GetItem, env: Env) -> Any:
         super().visit_getitem(getitem, env)
-        self.attr_checker.visit(getitem.idx, env)
+        self.attr_checker.visit(getitem.idx_, env)
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> Any:
         raise ValueError(
@@ -177,27 +177,27 @@ class _SrcPatChecker(PatternVisitor[Env]):
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Add index to environment
-        new_env = env if var.index is None else env + (var.index, True)
+        new_env = env if var.index_ is None else env + (var.index_, True)
 
         # Check first and template list
-        for tpl in var.templates:
+        for tpl in var.templates_:
             if var.has_first(tpl):
-                fst = var.tpl_to_fst[tpl]
-                if fst.check_any(lambda p: p.is_tpl):
+                fst = var.tpl_to_fst_[tpl]
+                if fst.check_any(lambda p: p.is_tpl_):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )
                 self.visit(fst, new_env)
             self.visit(tpl, new_env)
-        self.visit(var.field, new_env)
+        self.visit(var.field_, new_env)
 
         # Check length
-        if var.len is not None:
-            self.attr_checker.visit(var.len, env)
+        if var.len_ is not None:
+            self.attr_checker.visit(var.len_, env)
 
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
-        self.attr_checker.visit(get_inst.idx, env)
+        self.attr_checker.visit(get_inst.idx_, env)
 
 
 class _SrcAttrChecker(AttrVisitor[Env, None]):
@@ -205,7 +205,7 @@ class _SrcAttrChecker(AttrVisitor[Env, None]):
         self.checker = pat_checker
 
     def visit_getattr(self, get_attr: attr.GetAttr, env: Env):
-        if not self.checker.has_visited(get_attr.pat):
+        if not self.checker.has_visited(get_attr.pat_):
             raise AttributeError(
                 'Attribute in source pattern refers to undefined node.'
             )
@@ -215,16 +215,16 @@ class _SrcAttrChecker(AttrVisitor[Env, None]):
             raise KeyError('Symbol not found in environment.')
 
     def visit_variadic(self, var: attr.Variadic, env: Env) -> Any:
-        if var.len is not None:
-            self.visit(var.len, env)
-        new_env = env if var.index is None else env + (var.index, True)
-        self.visit(var.field, new_env)
+        if var.len_ is not None:
+            self.visit(var.len_, env)
+        new_env = env if var.index_ is None else env + (var.index_, True)
+        self.visit(var.field_, new_env)
 
     def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
-        self.visit(red.len, env)
-        self.visit(red.init, env)
-        new_env = env + (red.index, True)
-        self.visit(red.elem, new_env)
+        self.visit(red.len_, env)
+        self.visit(red.init_, env)
+        new_env = env + (red.index_, True)
+        self.visit(red.elem_, new_env)
 
 
 class _TgtPatChecker(PatternVisitor[Env]):
@@ -235,12 +235,12 @@ class _TgtPatChecker(PatternVisitor[Env]):
 
     def visit(self, p: Pattern, env: Env):
         if not (p in self.visited or p in self.src_nodes) \
-                and p.in_tgt:
+                and p.in_tgt_:
             raise ValueError(
                 'Node in target pattern has been used in other substitutions.'
             )
         super().visit(p, env)
-        p.in_tgt = True
+        p.in_tgt_ = True
         p.update_pred_succ()
 
     def visit_wildcard(self, wildcard: pat.Wildcard, env: Env) -> Any:
@@ -266,23 +266,23 @@ class _TgtPatChecker(PatternVisitor[Env]):
         super().visit_call(call, env)
 
         # Check if all non-default attributes are provided for concrete op
-        if isinstance(call.op, pat.ConcreteOp):
-            op_name = call.op.name
+        if isinstance(call.op_, pat.ConcreteOp):
+            op_name = call.op_.name_
             api = spec.get_api(op_name)
             num_input = spec.get_num_inputs(op_name)
             required = set()
             for name, param in list(signature(api).parameters.items())[num_input:]:
                 if param.default == Parameter.empty:
                     required.add(name)
-            required.difference_update(call.attrs.keys())
+            required.difference_update(call.attrs_.keys())
             if len(required) != 0:
                 raise AttributeError(
                     'Required attributes {} are not provided for op \'{}\'.'.format(
-                        tuple(required), call.op)
+                        tuple(required), call.op_)
                 )
 
         # Check if all attribute expressions only contain reference to nodes in source graph
-        for a in call.attrs.values():
+        for a in call.attrs_.values():
             self.attr_checker.visit(a, env)
 
     def visit_alt(self, alt: pat.Alt, env: Env) -> Any:
@@ -294,23 +294,23 @@ class _TgtPatChecker(PatternVisitor[Env]):
     def visit_variadic(self, var: pat.Variadic, env: Env) -> Any:
         # Check length
         if not var.is_output and not var.in_src:
-            if var.len is None:
+            if var.len_ is None:
                 raise ValueError(
                     'Length is not specified for non-output target pattern.'
                 )
-            self.attr_checker.visit(var.len, env)
+            self.attr_checker.visit(var.len_, env)
 
         # Add index to environment and check pattern
         new_env = env
-        if var.index is not None:
-            new_env = env + (var.index, True)
-        self.visit(var.field, new_env)
+        if var.index_ is not None:
+            new_env = env + (var.index_, True)
+        self.visit(var.field_, new_env)
 
         # Check template and first list
-        for tpl in var.templates:
+        for tpl in var.templates_:
             if var.has_first(tpl):
-                fst = var.tpl_to_fst[tpl]
-                if fst.check_any(lambda p: p.is_tpl):
+                fst = var.tpl_to_fst_[tpl]
+                if fst.check_any(lambda p: p.is_tpl_):
                     raise ValueError(
                         'Pattern as first instance cannot connect to template patterns.'
                     )
@@ -319,7 +319,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
 
     def visit_get_instance(self, get_inst: pat.GetInst, env: Env) -> Any:
         super().visit_get_instance(get_inst, env)
-        self.attr_checker.visit(get_inst.idx, env)
+        self.attr_checker.visit(get_inst.idx_, env)
 
 
 class _TgtAttrChecker(AttrVisitor[Env, None]):
@@ -327,19 +327,19 @@ class _TgtAttrChecker(AttrVisitor[Env, None]):
         self.src_nodes = src_nodes
 
     def visit_variadic(self, var: attr.Variadic, env: Env) -> Any:
-        if var.len is None:
+        if var.len_ is None:
             raise ValueError(
                 'Length is not specified for variadic attribute in target pattern.'
             )
-        self.visit(var.len, env)
-        new_env = env if var.index is None else env + (var.index, True)
-        self.visit(var.field, new_env)
+        self.visit(var.len_, env)
+        new_env = env if var.index_ is None else env + (var.index_, True)
+        self.visit(var.field_, new_env)
 
     def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
-        self.visit(red.len, env)
-        self.visit(red.init, env)
-        new_env = env + (red.index, True)
-        self.visit(red.elem, new_env)
+        self.visit(red.len_, env)
+        self.visit(red.init_, env)
+        new_env = env + (red.index_, True)
+        self.visit(red.elem_, new_env)
 
 
 @relay.transform.function_pass(opt_level=0)

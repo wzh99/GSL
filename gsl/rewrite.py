@@ -45,7 +45,7 @@ class ExprRewriter:
                 src_matched = self.match_variadic(src_var, expr, pat_to_expr, succ_list)
                 if len(src_matched) == 0:
                     break
-                elif src_var.min_len is not None and len(src_matched) < src_var.min_len:
+                elif src_var.min_len_ is not None and len(src_matched) < src_var.min_len_:
                     self.history.update(src_matched)
                     self.clear_pat()
                     continue
@@ -147,10 +147,10 @@ class ExprRewriter:
         def add_succ(pattern: Pattern, expr: relay.Expr):
             if expr not in succ_list:
                 return
-            for ps in pattern.succ:
+            for ps in pattern.succ_:
                 if ps in pat_to_expr:
                     continue  # successor pattern already matched
-                if ps.src_idx != src_idx:
+                if ps.src_idx_ != src_idx:
                     continue  # not source or not the source pattern concerned
                 # matched expression cannot be matched again
                 cand_es = list(filter(
@@ -246,13 +246,13 @@ class ExprRewriter:
                 p, e = stack.pop()
 
                 # Push successors to stack if field pattern is not reached
-                if p not in src_var.field_inst:
+                if p not in src_var.field_inst_:
                     add_succ(p, e)
                     continue
 
                 # Try matching field with expression
-                env = Env() if src_var.index is None else \
-                    Env(symbol=src_var.index, value=len(out_matched))
+                env = Env() if src_var.index_ is None else \
+                    Env(symbol=src_var.index_, value=len(out_matched))
                 rec = pat_to_expr.record()
                 matcher = Matcher(pat_to_expr, self.ty_map)
                 result = matcher.match(src_var.instantiate(), e, env)
@@ -277,7 +277,7 @@ class ExprRewriter:
         tgt_outs: List[relay.Expr] = []
         eval_his: EvalHistory = {}
         for i in range(length):
-            env = Env() if tgt_var.index is None else Env(symbol=tgt_var.index, value=i)
+            env = Env() if tgt_var.index_ is None else Env(symbol=tgt_var.index_, value=i)
             inst = tgt_var.instantiate()
             tgt_outs.append(_RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(inst, env))
         return tgt_outs
@@ -373,9 +373,9 @@ class _RelayBuilder(PatternVisitor[Env]):
         return relay.const(np.array(value, dtype=dtype))
 
     def visit_call(self, call: pat.Call, env: Env) -> relay.Expr:
-        args = [self.visit(a, env) for a in call.args]
-        attrs = dict([(name, self._eval_attr(attr, env)) for name, attr in call.attrs.items()])
-        op_name = self.visit_op(call.op, env)
+        args = [self.visit(a, env) for a in call.args_]
+        attrs = dict([(name, self._eval_attr(attr, env)) for name, attr in call.attrs_.items()])
+        op_name = self.visit_op(call.op_, env)
         api = spec.get_api(op_name)
         try:
             call_expr = api(*args, **attrs)
@@ -387,40 +387,40 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_op(self, op: pat.Pattern, _env: Env) -> str:
         if isinstance(op, pat.ConcreteOp):
-            return op.name
+            return op.name_
         else:
             return self.pat_to_expr[op].name
 
     def visit_tuple(self, tup: pat.Tuple, env: Env) -> relay.Expr:
-        return relay.Tuple([self.visit(f, env) for f in tup.fields])
+        return relay.Tuple([self.visit(f, env) for f in tup.fields_])
 
     def visit_getitem(self, getitem: pat.GetItem, env: Env) -> relay.Expr:
-        tup = self.visit(getitem.tup, env)
-        idx = self._eval_attr(getitem.idx, env)
+        tup = self.visit(getitem.tup_, env)
+        idx = self._eval_attr(getitem.idx_, env)
         return tup[idx]
 
     def visit_cond(self, cond: pat.Cond, env: Env) -> relay.Expr:
-        pred = self._eval_attr(cond.predicate, env)
-        return self.visit(cond.then_pat, env) if pred else self.visit(cond.else_pat, env)
+        pred = self._eval_attr(cond.predicate_, env)
+        return self.visit(cond.then_pat_, env) if pred else self.visit(cond.else_pat_, env)
 
     def visit_match(self, match: pat.Match, env: Env) -> relay.Expr:
-        alt = match.alt
+        alt = match.alt_
         if alt.matched_idx is None:
             raise RuntimeError(
                 'None of the alternative pattern is matched.'
             )
-        return self.visit(match.clauses[alt.matched_idx], env)
+        return self.visit(match.clauses_[alt.matched_idx], env)
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length
-        length = self._eval_attr(var.len, env)
+        length = self._eval_attr(var.len_, env)
 
         # Create fields
         fields: List[relay.Expr] = []
         for i in range(length):
             new_env = env
-            if var.index is not None:
-                new_env = env + (var.index, i)
+            if var.index_ is not None:
+                new_env = env + (var.index_, i)
             pat_f = var.instantiate()
             fields.append(self.visit(pat_f, new_env))
 

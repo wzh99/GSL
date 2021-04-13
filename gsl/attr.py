@@ -15,7 +15,7 @@ class Attr:
     value_class = (bool, int, float, str)
 
     def __init__(self):
-        self.free_sym: Set[Symbol] = set()
+        self.free_sym_: Set[Symbol] = set()
 
     @property
     def sub_expr(self) -> List['Attr']:
@@ -27,11 +27,11 @@ class Attr:
 
     @property
     def has_free_sym(self):
-        return len(self.free_sym) != 0
+        return len(self.free_sym_) != 0
 
     def _update_free_sym(self):
-        self.free_sym = reduce(
-            set.union, map(lambda a: a.free_sym, self.sub_expr), set()
+        self.free_sym_ = reduce(
+            set.union, map(lambda a: a.free_sym_, self.sub_expr), set()
         ).difference(self.bounded_sym)
 
     def __hash__(self):
@@ -138,7 +138,7 @@ class Const(Attr):
 
     def __init__(self, value: AttrPrimType):
         super().__init__()
-        self.value = value
+        self.value_ = value
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_const(self, arg)
@@ -152,9 +152,9 @@ class GetAttr(Attr):
     def __init__(self, pat, name: str):
         super().__init__()
         from .pat import Pattern
-        self.pat: Pattern = pat
-        self.name = name
-        self.free_sym.update(self.pat.free_sym)
+        self.pat_: Pattern = pat
+        self.name_ = name
+        self.free_sym_.update(self.pat_.free_sym_)
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_getattr(self, arg)
@@ -167,14 +167,14 @@ class Range(Attr):
 
     def __init__(self, stop: AttrLike, start: AttrLike = None, step: AttrLike = None):
         super().__init__()
-        self.stop = to_attr(stop)
-        self.start = to_attr(start)
-        self.step = to_attr(step)
+        self.stop_ = to_attr(stop)
+        self.start_ = to_attr(start)
+        self.step_ = to_attr(step)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.stop, self.start, self.step]
+        return [self.stop_, self.start_, self.step_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_range(self, arg)
@@ -187,12 +187,12 @@ class Tuple(Attr):
 
     def __init__(self, *fields):
         super().__init__()
-        self.fields = [to_attr(e) for e in fields]
+        self.fields_ = [to_attr(e) for e in fields]
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return self.fields
+        return self.fields_
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_tuple(self, arg)
@@ -205,12 +205,12 @@ class TupleLen(Attr):
 
     def __init__(self, tup: Attr):
         super().__init__()
-        self.tup = tup
+        self.tup_ = tup
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup]
+        return [self.tup_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_tuple_len(self, arg)
@@ -223,13 +223,13 @@ class GetItem(Attr):
 
     def __init__(self, tup: Attr, index: AttrLike):
         super().__init__()
-        self.tup = tup
-        self.index = to_attr(index)
+        self.tup_ = tup
+        self.index_ = to_attr(index)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup, self.index]
+        return [self.tup_, self.index_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_getitem(self, arg)
@@ -242,14 +242,14 @@ class Slice(Attr):
 
     def __init__(self, start: AttrLike = None, stop: AttrLike = None, step: AttrLike = None):
         super().__init__()
-        self.start = to_attr(start)
-        self.stop = to_attr(stop)
-        self.step = to_attr(step)
+        self.start_ = to_attr(start)
+        self.stop_ = to_attr(stop)
+        self.step_ = to_attr(step)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.start, self.stop, self.step]
+        return [self.start_, self.stop_, self.step_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_slice(self, arg)
@@ -262,13 +262,13 @@ class GetSlice(Attr):
 
     def __init__(self, tup: Attr, slc: Slice):
         super().__init__()
-        self.tup = tup
-        self.slc = slc
+        self.tup_ = tup
+        self.slc_ = slc
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup, self.slc]
+        return [self.tup_, self.slc_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_getslice(self, arg)
@@ -277,11 +277,11 @@ class GetSlice(Attr):
 class Reverse(Attr):
     def __init__(self, tup: Attr):
         super().__init__()
-        self.tup = tup
+        self.tup_ = tup
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup]
+        return [self.tup_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_reverse(self, arg)
@@ -320,13 +320,13 @@ class Unary(Attr):
 
     def __init__(self, uop: UnaryOp, attr: AttrLike):
         super().__init__()
-        self.op = uop
-        self.attr = to_attr(attr)
+        self.op_ = uop
+        self.attr_ = to_attr(attr)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.attr]
+        return [self.attr_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_unary(self, arg)
@@ -366,14 +366,14 @@ class Binary(Attr):
 
     def __init__(self, bop: BinaryOp, lhs: AttrLike, rhs: AttrLike):
         super().__init__()
-        self.op = bop
-        self.lhs = to_attr(lhs)
-        self.rhs = to_attr(rhs)
+        self.op_ = bop
+        self.lhs_ = to_attr(lhs)
+        self.rhs_ = to_attr(rhs)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.lhs, self.rhs]
+        return [self.lhs_, self.rhs_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_binary(self, arg)
@@ -439,14 +439,14 @@ class Cond(Attr):
 
     def __init__(self, pred: Attr, then_br: AttrLike, else_br: AttrLike):
         super().__init__()
-        self.pred = pred
-        self.then_br = to_attr(then_br)
-        self.else_br = to_attr(else_br)
+        self.pred_ = pred
+        self.then_br_ = to_attr(then_br)
+        self.else_br_ = to_attr(else_br)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.pred, self.then_br, self.else_br]
+        return [self.pred_, self.then_br_, self.else_br_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_cond(self, arg)
@@ -460,17 +460,17 @@ class Match(Attr):
     def __init__(self, alt, clauses: List[AttrLike]):
         super().__init__()
         from .pat import Alt
-        self.alt: Alt = alt
-        if len(alt.pats) != len(clauses):
+        self.alt_: Alt = alt
+        if len(alt.pats_) != len(clauses):
             raise ValueError(
-                'Expect {} clauses, got {}.'.format(len(alt.pats), len(clauses))
+                'Expect {} clauses, got {}.'.format(len(alt.pats_), len(clauses))
             )
-        self.clauses = [to_attr(a) for a in clauses]
+        self.clauses_ = [to_attr(a) for a in clauses]
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return self.clauses
+        return self.clauses_
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_match(self, arg)
@@ -483,7 +483,7 @@ class Symbol(Attr):
 
     def __init__(self):
         super().__init__()
-        self.free_sym = {self}
+        self.free_sym_ = {self}
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_symbol(self, arg)
@@ -530,18 +530,18 @@ class Variadic(Attr):
             will be checked if provided. In target pattern, it is required.
         """
         super().__init__()
-        self.index = Symbol()
-        self.field = to_attr(func(self.index))
-        self.len = to_attr(length)
+        self.index_ = Symbol()
+        self.field_ = to_attr(func(self.index_))
+        self.len_ = to_attr(length)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.field, self.len]
+        return [self.field_, self.len_]
 
     @property
     def bounded_sym(self) -> List['Symbol']:
-        return [self.index]
+        return [self.index_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_variadic(self, arg)
@@ -552,18 +552,18 @@ class Map(Attr):
 
     def __init__(self, tup: AttrLike, func: Callable[[Symbol], AttrLike]):
         super().__init__()
-        self.tup = tup
-        self.sym = Symbol()
-        self.body = to_attr(func(self.sym))
+        self.tup_ = tup
+        self.sym_ = Symbol()
+        self.body_ = to_attr(func(self.sym_))
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup, self.body]
+        return [self.tup_, self.body_]
 
     @property
     def bounded_sym(self) -> List['Symbol']:
-        return [self.sym]
+        return [self.sym_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_map(self, arg)
@@ -596,20 +596,20 @@ class ReduceIndexed(Attr):
             )
 
         super().__init__()
-        self.op = op
-        self.index = Symbol()
-        self.elem = to_attr(func(self.index))
-        self.len = to_attr(length)
-        self.init = to_attr(reduce_init[op] if init is None else init)
+        self.op_ = op
+        self.index_ = Symbol()
+        self.elem_ = to_attr(func(self.index_))
+        self.len_ = to_attr(length)
+        self.init_ = to_attr(reduce_init[op] if init is None else init)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.elem, self.len, self.init]
+        return [self.elem_, self.len_, self.init_]
 
     @property
     def bounded_sym(self) -> List['Symbol']:
-        return [self.index]
+        return [self.index_]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_reduce_indexed(self, arg)
@@ -627,14 +627,14 @@ class ReduceTuple(Attr):
             )
 
         super().__init__()
-        self.op = op
-        self.tup = to_attr(tup)
+        self.op_ = op
+        self.tup_ = to_attr(tup)
         self.init = to_attr(reduce_init[op] if init is None else init)
         self._update_free_sym()
 
     @property
     def sub_expr(self) -> List['Attr']:
-        return [self.tup, self.init]
+        return [self.tup_, self.init]
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_reduce_tuple(self, arg)
@@ -658,47 +658,47 @@ class AttrVisitor(Generic[ArgType, RetType]):
         pass
 
     def visit_range(self, ran: Range, arg: ArgType):
-        self.visit(ran.start, arg)
-        self.visit(ran.stop, arg)
-        self.visit(ran.step, arg)
+        self.visit(ran.start_, arg)
+        self.visit(ran.stop_, arg)
+        self.visit(ran.step_, arg)
 
     def visit_tuple(self, tup_attr: Tuple, arg: ArgType):
-        for f in tup_attr.fields:
+        for f in tup_attr.fields_:
             self.visit(f, arg)
 
     def visit_tuple_len(self, tuple_len: TupleLen, arg: ArgType):
-        self.visit(tuple_len.tup, arg)
+        self.visit(tuple_len.tup_, arg)
 
     def visit_getitem(self, getitem: GetItem, arg: ArgType):
-        self.visit(getitem.tup, arg)
-        self.visit(getitem.index, arg)
+        self.visit(getitem.tup_, arg)
+        self.visit(getitem.index_, arg)
 
     def visit_slice(self, slc: Slice, arg: ArgType):
-        self.visit(slc.start, arg)
-        self.visit(slc.stop, arg)
-        self.visit(slc.step, arg)
+        self.visit(slc.start_, arg)
+        self.visit(slc.stop_, arg)
+        self.visit(slc.step_, arg)
 
     def visit_getslice(self, getslice: GetSlice, arg: ArgType):
-        self.visit(getslice.tup, arg)
-        self.visit(getslice.slc, arg)
+        self.visit(getslice.tup_, arg)
+        self.visit(getslice.slc_, arg)
 
     def visit_reverse(self, rev: Reverse, arg: ArgType):
-        self.visit(rev.tup, arg)
+        self.visit(rev.tup_, arg)
 
     def visit_unary(self, unary: Unary, arg: ArgType):
-        self.visit(unary.attr, arg)
+        self.visit(unary.attr_, arg)
 
     def visit_binary(self, binary: Binary, arg: ArgType):
-        self.visit(binary.lhs, arg)
-        self.visit(binary.rhs, arg)
+        self.visit(binary.lhs_, arg)
+        self.visit(binary.rhs_, arg)
 
     def visit_cond(self, cond: Cond, arg: ArgType):
-        self.visit(cond.pred, arg)
-        self.visit(cond.then_br, arg)
-        self.visit(cond.else_br, arg)
+        self.visit(cond.pred_, arg)
+        self.visit(cond.then_br_, arg)
+        self.visit(cond.else_br_, arg)
 
     def visit_match(self, match: Match, arg: ArgType):
-        for c in match.clauses:
+        for c in match.clauses_:
             self.visit(c, arg)
 
     def visit_symbol(self, sym: Symbol, arg: ArgType):
@@ -714,5 +714,5 @@ class AttrVisitor(Generic[ArgType, RetType]):
         pass
 
     def visit_reduce_tuple(self, red: ReduceTuple, arg: ArgType):
-        self.visit(red.tup, arg)
+        self.visit(red.tup_, arg)
         self.visit(red.init, arg)
