@@ -148,7 +148,7 @@ class Matcher:
         rec = self.pat_to_expr.record()
         for idx in range(len(alt.pats_)):
             if self.match(alt.pats_[idx], expr, env):
-                alt.matched_idx = idx
+                alt.matched_idx_ = idx
                 return True
             else:
                 rec.restore()

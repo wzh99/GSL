@@ -405,11 +405,11 @@ class _RelayBuilder(PatternVisitor[Env]):
 
     def visit_match(self, match: pat.Match, env: Env) -> relay.Expr:
         alt = match.alt_
-        if alt.matched_idx is None:
+        if alt.matched_idx_ is None:
             raise RuntimeError(
                 'None of the alternative pattern is matched.'
             )
-        return self.visit(match.clauses_[alt.matched_idx], env)
+        return self.visit(match.clauses_[alt.matched_idx_], env)
 
     def visit_variadic(self, var: pat.Variadic, env: Env) -> relay.Expr:
         # Evaluate length

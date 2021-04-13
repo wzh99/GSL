@@ -69,6 +69,8 @@ class SubstTest(dfp.DFPatternCallback):
                 gsl_wl.visualize()
 
 
+# Utility functions for evaluating attribute values
+# When counting lines, these utilities will be inlined.
 def _pos_axis(axis: int, ndim: int):
     return axis if axis >= 0 else ndim + axis
 
@@ -100,10 +102,10 @@ class SimplifyReshape(SubstTest):
         x = relay.reshape(x, newshape=(2, 1, 16))
         return relay.reshape(x, newshape=(2, 2, 8))
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 9
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 4
         x = pat.Wildcard()
         src = op.Reshape(op.Reshape(x))
         tgt = op.Reshape(x, newshape=src.newshape)
@@ -117,10 +119,10 @@ class SimplifyTranspose(SubstTest):
         x = relay.transpose(x, axes=(0, 3, 1, 2))
         return relay.transpose(x, axes=(3, 1, 0, 2))
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 42
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 10
         x = pat.Wildcard()
         trans1 = op.Transpose(x)
         trans2 = op.Transpose(trans1)
@@ -144,10 +146,10 @@ class FullElementWise(SubstTest):
         full = relay.full_like(x, relay.const(2))
         return relay.add(x, full)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 35
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 14
         x = pat.Wildcard()
         val = pat.Const()
         liked = pat.Wildcard()
@@ -172,10 +174,10 @@ class ConcretizeZerosLike(SubstTest):
         x = relay.var('x', shape=(2, 4, 4))
         return relay.zeros_like(x)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 8
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 4
         x = pat.Wildcard()
         src = op.ZerosLike(x)
         tgt = op.Zeros(shape=x.shape, dtype=x.dtype)
@@ -187,10 +189,10 @@ class ConcretizeOnesLike(SubstTest):
         x = relay.var('x', shape=(2, 4, 4))
         return relay.ones_like(x)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 8
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 4
         x = pat.Wildcard()
         src = op.OnesLike(x)
         tgt = op.Ones(shape=x.shape, dtype=x.dtype)
@@ -203,10 +205,10 @@ class ConcretizeReshapeLike(SubstTest):
         y = relay.var('y', shape=(2, 2, 8))
         return relay.reshape_like(x, y)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 9
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 5
         x = pat.Wildcard()
         y = pat.Wildcard()
         src = op.ReshapeLike(x, y)
@@ -220,10 +222,10 @@ class ConcretizeCollapseSumLike(SubstTest):
         y = relay.var('y', shape=(1, 4))
         return relay.collapse_sum_like(x, y)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 14
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 5
         x = pat.Wildcard()
         y = pat.Wildcard()
         src = pat.Call('collapse_sum_like', x, y)
@@ -237,10 +239,10 @@ class ConcretizeBroadcastToLike(SubstTest):
         y = relay.var('y', shape=(2, 4, 4))
         return relay.broadcast_to_like(x, y)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 9
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 5
         x = pat.Wildcard()
         y = pat.Wildcard()
         src = pat.Call('broadcast_to_like', x, y)
@@ -254,10 +256,10 @@ class EliminateIdentity(SubstTest):
         zero = relay.zeros((2, 4, 4), 'float32')
         return x + zero
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 38
         return relay.transform.SimplifyExpr()
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 12
         x = pat.Wildcard()
         like = pat.Wildcard()
         like.injective = False
@@ -271,6 +273,46 @@ class EliminateIdentity(SubstTest):
         src = pat.Alt(add, sub, mul, div)
 
         tgt = pat.Cond(x.shape == src.shape, x, op.BroadcastTo(x, src.shape))
+
+        return Subst(src, tgt)
+
+
+class SimplifyBiasAdd(SubstTest):
+    def __init__(self):
+        super().__init__()
+
+        self.x = dfp.wildcard()
+        self.b = dfp.wildcard()
+        self.pattern = dfp.is_op('nn.bias_add')(self.x, self.b)
+
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        b = relay.var('b', shape=(4,))
+        return relay.nn.bias_add(x, b, axis=1)
+
+    def get_pass(self) -> transform.Pass:  # 23
+        return relay.transform.CanonicalizeOps()
+
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 11
+        x = node_map[self.x]
+        ndim = _ndim(x)
+        axis = _pos_axis(node_map[self.pattern].attrs['axis'], ndim)
+        n_new = _num_new_axis(axis, ndim)
+        b = node_map[self.b]
+        if n_new > 0:
+            b = relay.expand_dims(b, 1, num_newaxis=n_new)
+        return x + b
+
+    def define_gsl(self) -> Optional[Subst]:  # 8
+        x = pat.Wildcard()
+        b = pat.Wildcard()
+
+        src = op.BiasAdd(x, b)
+
+        axis = _pos_axis_attr(src.axis, x.ndim)
+        n_new = _num_new_axis_attr(axis, x.ndim)
+        b = pat.Cond(n_new > 0, op.ExpandDims(b, axis=1, num_newaxis=n_new), b)
+        tgt = x + b
 
         return Subst(src, tgt)
 
@@ -296,10 +338,10 @@ class LowerBatchNorm(SubstTest):
         bn = relay.nn.batch_norm(x, gamma, beta, mean, var, axis=1)
         return bn[0]
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 28
         return relay.transform.SimplifyInference()
 
-    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 17
         bn = node_map[self.bn]
         std = relay.sqrt(node_map[self.var] + relay.const(bn.attrs['epsilon']))
         k: relay.Expr = node_map[self.gamma] / std if bn.attrs['scale'] else 1.0 / std
@@ -307,10 +349,12 @@ class LowerBatchNorm(SubstTest):
             -node_map[self.mean] * k
         ndim = _ndim(node_map[self.x])
         axis = _pos_axis(bn.attrs['axis'], ndim)
-        k_expand = relay.expand_dims(k, 1, ndim - 1 - axis)
-        return relay.nn.bias_add(node_map[self.x] * k_expand, bias)
+        n_new = _num_new_axis(axis, ndim)
+        if n_new > 0:
+            k = relay.expand_dims(k, 1, num_newaxis=n_new)
+        return relay.nn.bias_add(node_map[self.x] * k, bias)
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 14
         x = pat.Wildcard()
         gamma = pat.Variable()
         beta = pat.Variable()
@@ -347,10 +391,10 @@ class LowerLayerNorm(SubstTest):
         beta = relay.var('beta', shape=(4,))
         return relay.nn.layer_norm(x, gamma, beta, axis=-1)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 22
         return relay.transform.SimplifyInference()
 
-    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 22
         x = node_map[self.x]
         ln = node_map[self.ln]
         axis = ln.attrs['axis']
@@ -370,7 +414,7 @@ class LowerLayerNorm(SubstTest):
         center = scale + beta if ln.attrs['center'] else scale
         return center
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 16
         x = pat.Wildcard()
         gamma = pat.Variable()
         beta = pat.Variable()
@@ -410,10 +454,10 @@ class LowerGroupNorm(SubstTest):
         beta = relay.var('beta', shape=(4,))
         return relay.nn.group_norm(x, gamma, beta, 2)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 41
         return relay.transform.SimplifyInference()
 
-    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 29
         x = node_map[self.x]
         gn = node_map[self.gn]
         axis = gn.attrs['axis']
@@ -439,7 +483,7 @@ class LowerGroupNorm(SubstTest):
         center = scale + beta if gn.attrs['center'] else scale
         return center
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 23
         x = pat.Wildcard()
         gamma = pat.Variable()
         beta = pat.Variable()
@@ -484,10 +528,10 @@ class LowerInstanceNorm(SubstTest):
         beta = relay.var('beta', shape=(4,))
         return relay.nn.instance_norm(x, gamma, beta)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 25
         return relay.transform.SimplifyInference()
 
-    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 25
         x = node_map[self.x]
         ndim = _ndim(x)
         inst_norm = node_map[self.norm]
@@ -510,7 +554,7 @@ class LowerInstanceNorm(SubstTest):
         center = scale + beta if inst_norm.attrs['center'] else scale
         return center
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 18
         x = pat.Wildcard()
         gamma = pat.Variable()
         beta = pat.Variable()
@@ -521,7 +565,7 @@ class LowerInstanceNorm(SubstTest):
         reduced_axes = attr.Range(start=1, stop=axis) + attr.Range(start=axis + 1, stop=x.ndim)
         mean = op.Mean(x, axis=reduced_axes, keepdims=True)
         demean = x - mean
-        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, attr.Map(reduced_axes, lambda a: x.shape[a]), 1)
+        n_val = attr.ReduceTuple(attr.BinaryOp.MUL, attr.Map(reduced_axes, lambda a: x.shape[a]))
         var = op.Sum(demean * demean, axis=reduced_axes, keepdims=True) / \
               op.Cast(n_val, dtype=x.dtype)
         norm = demean / op.Sqrt(var + inst_norm.epsilon)
@@ -546,16 +590,16 @@ class LowerL2Norm(SubstTest):
         x = relay.var('x', shape=(2, 4, 4, 4))
         return relay.nn.l2_normalize(x, 1e-5)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 6
         return relay.transform.SimplifyInference()
 
-    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:
+    def rewrite_dfp(self, node_map: Dict[dfp.DFPattern, relay.Expr]) -> relay.Expr:  # 5
         x = node_map[self.x]
         l2 = node_map[self.l2]
         return x / relay.sqrt(relay.maximum(relay.sum(x * x, l2.attrs['axis'], keepdims=True),
                                             relay.const(l2.attrs['eps'])))
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 4
         x = pat.Wildcard()
         l2 = op.L2Normalize(x)
         result = x / op.Sqrt(op.Maximum(op.Sum(x * x, l2.axis, keepdims=True), l2.eps))
@@ -571,10 +615,10 @@ class CombineParallelConv2D(SubstTest):
         out = [relay.nn.conv2d(x, w, padding=(1, 1, 1, 1)) for w in [w1, w2, w3]]
         return relay.concatenate(out, 1)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 32 + 66 = 98
         return relay.transform.CombineParallelConv2D(min_num_branches=2)
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 23
         x = pat.Wildcard()
         w1 = pat.Variable()
         conv1 = op.Conv2D(x, w1, groups=1)
@@ -611,10 +655,10 @@ class CombineParallelDense(SubstTest):
         out = [relay.nn.dense(x, w) for w in [w1, w2, w3]]
         return relay.concatenate(out, axis=1)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 32 + 44 = 76
         return relay.transform.CombineParallelDense(min_num_branches=2, to_batch=False)
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 17
         x = pat.Wildcard()
         w1 = pat.Variable()
         dense1 = op.Dense(x, w1)
@@ -645,10 +689,10 @@ class CombineParallelBatchMatmul(SubstTest):
         out = [relay.nn.batch_matmul(x, y) for y in [y1, y2, y3]]
         return relay.concatenate(out, 2)
 
-    def get_pass(self) -> transform.Pass:
+    def get_pass(self) -> transform.Pass:  # 32 + 34 = 66
         return relay.transform.CombineParallelBatchMatmul(2)
 
-    def define_gsl(self) -> Optional[Subst]:
+    def define_gsl(self) -> Optional[Subst]:  # 17
         x = pat.Wildcard()
         y1 = pat.Variable()
         matmul1 = op.BatchMatmul(x, y1)
@@ -681,6 +725,7 @@ if __name__ == '__main__':
         # ConcretizeCollapseSumLike,
         # ConcretizeBroadcastToLike,
         # EliminateIdentity,
+        # SimplifyBiasAdd,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,

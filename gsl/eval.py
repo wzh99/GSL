@@ -200,11 +200,11 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 
     def visit_match(self, match: attr.Match, env: Env):
         alt = match.alt_
-        if alt.matched_idx is None:
+        if alt.matched_idx_ is None:
             raise RuntimeError(
                 'None of the alternative pattern is matched.'
             )
-        return self.visit(match.clauses_[alt.matched_idx], env)
+        return self.visit(match.clauses_[alt.matched_idx_], env)
 
     def visit_symbol(self, sym: attr.Symbol, env: Env):
         val = env[sym]

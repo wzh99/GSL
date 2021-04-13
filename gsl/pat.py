@@ -444,7 +444,7 @@ class Alt(Pattern):
 
         super().__init__()
         self.pats_ = [to_pat(p) for p in pats]
-        self.matched_idx: Optional[int] = None
+        self.matched_idx_: Optional[int] = None
         self._update_free_sym()
 
     @property
@@ -453,6 +453,10 @@ class Alt(Pattern):
 
     def has_attr(self, name: str) -> bool:
         return all([p.has_attr(name) for p in self.pats_])
+
+    def clear(self):
+        super().clear()
+        self.matched_idx_ = None
 
     def accept(self, visitor: 'PatternVisitor', arg: 'ArgType'):
         return visitor.visit_alt(self, arg)
@@ -649,6 +653,10 @@ class GetInst(Pattern):
         self.tpl_ = tpl
         self.idx_ = attr.to_attr(index)
         self._update_free_sym()
+
+    @property
+    def pred(self) -> List['Pattern']:
+        return [self.var_]
 
     @property
     def avail_attrs(self) -> List[str]:
