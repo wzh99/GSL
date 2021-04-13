@@ -65,6 +65,14 @@ class FullLike(Call):
         super().__init__('full_like', data, fill_value)
 
 
+class BroadcastTo(Call):
+    def __init__(self, data: PatternLike,
+                 shape: Union[tuple, Attr, None] = None):
+        super().__init__('broadcast_to', data, **pat.filter_attrs({
+            'shape': shape
+        }))
+
+
 class Concatenate(Call):
     def __init__(self, data: Union[Tuple[PatternLike, ...], pat.Variadic],
                  axis: Union[int, Attr, None] = None):
@@ -93,6 +101,18 @@ class Reshape(Call):
                  newshape: Union[tuple, Attr, None] = None):
         super().__init__('reshape', data, **pat.filter_attrs({
             'newshape': newshape,
+        }))
+
+
+class ReshapeLike(Call):
+    def __init__(self, data: PatternLike, shape_like: PatternLike,
+                 lhs_begin: Union[int, Attr, None] = None,
+                 lhs_end: Union[int, Attr, None] = None,
+                 rhs_begin: Union[int, Attr, None] = None,
+                 rhs_end: Union[int, Attr, None] = None):
+        super().__init__('reshape_like', data, shape_like, **pat.filter_attrs({
+            'lhs_begin': lhs_begin, 'lhs_end': lhs_end, 'rhs_begin': rhs_begin,
+            'rhs_end': rhs_end,
         }))
 
 

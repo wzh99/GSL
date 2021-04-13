@@ -95,8 +95,8 @@ class Matcher:
         # match result of arguments.
         if len(call.args) != len(expr.args):
             return False
-        for pat_arg, expr_arg in zip(call.args, expr.args):
-            if not self.match(pat_arg, expr_arg, env):
+        for pa, ea in zip(call.args, expr.args):
+            if not self.match(pa, ea, env):
                 return False
 
         # Match attributes

@@ -167,6 +167,114 @@ class FullElementWise(SubstTest):
         return Subst(src, tgt)
 
 
+class ConcretizeZerosLike(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        return relay.zeros_like(x)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        src = op.ZerosLike(x)
+        tgt = op.Zeros(shape=x.shape, dtype=x.dtype)
+        return Subst(src, tgt)
+
+
+class ConcretizeOnesLike(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        return relay.ones_like(x)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        src = op.OnesLike(x)
+        tgt = op.Ones(shape=x.shape, dtype=x.dtype)
+        return Subst(src, tgt)
+
+
+class ConcretizeReshapeLike(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        y = relay.var('y', shape=(2, 2, 8))
+        return relay.reshape_like(x, y)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        y = pat.Wildcard()
+        src = op.ReshapeLike(x, y)
+        tgt = op.Reshape(x, newshape=y.shape)
+        return Subst(src, tgt)
+
+
+class ConcretizeCollapseSumLike(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        y = relay.var('y', shape=(1, 4))
+        return relay.collapse_sum_like(x, y)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        y = pat.Wildcard()
+        src = pat.Call('collapse_sum_like', x, y)
+        tgt = pat.Call('collapse_sum_to', x, y.shape)
+        return Subst(src, tgt)
+
+
+class ConcretizeBroadcastToLike(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 1, 4))
+        y = relay.var('y', shape=(2, 4, 4))
+        return relay.broadcast_to_like(x, y)
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        y = pat.Wildcard()
+        src = pat.Call('broadcast_to_like', x, y)
+        tgt = op.BroadcastTo(x, shape=y.shape)
+        return Subst(src, tgt)
+
+
+class EliminateIdentity(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 1, 4))
+        zero = relay.zeros((2, 4, 4), 'float32')
+        return x + zero
+
+    def get_pass(self) -> transform.Pass:
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:
+        x = pat.Wildcard()
+        like = pat.Wildcard()
+        like.injective = False
+
+        zero = pat.Alt(pat.Const(0), op.Zeros(), op.ZerosLike(like))
+        add = pat.Alt(x + zero, zero + x)
+        sub = x - zero
+        one = pat.Alt(pat.Const(1), op.Ones(), op.OnesLike(like))
+        mul = pat.Alt(x * one, one * x)
+        div = x / one
+        src = pat.Alt(add, sub, mul, div)
+
+        tgt = pat.Cond(x.shape == src.shape, x, op.BroadcastTo(x, src.shape))
+
+        return Subst(src, tgt)
+
+
 class LowerBatchNorm(SubstTest):
     def __init__(self):
         super().__init__()
@@ -567,6 +675,12 @@ if __name__ == '__main__':
         # SimplifyReshape,
         # SimplifyTranspose,
         # FullElementWise,
+        # ConcretizeZerosLike,
+        # ConcretizeOnesLike,
+        # ConcretizeReshapeLike,
+        # ConcretizeCollapseSumLike,
+        # ConcretizeBroadcastToLike,
+        # EliminateIdentity,
         # LowerBatchNorm,
         # LowerLayerNorm,
         # LowerGroupNorm,
