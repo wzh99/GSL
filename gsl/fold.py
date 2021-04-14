@@ -51,13 +51,6 @@ class _FoldMutator(relay.ExprMutator):
         self.params = params
         self.next_idx = 1
 
-    def visit(self, expr: relay.Expr):
-        if expr in self.memo_map:
-            return self.memo_map[expr]
-        ret = super().visit(expr)
-        self.memo_map[expr] = ret
-        return ret
-
     def visit_call(self, call: relay.Call):
         # Fold arguments
         call = super().visit_call(call)

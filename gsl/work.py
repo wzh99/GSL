@@ -1,7 +1,6 @@
-from typing import Dict, Union, List, Tuple, Optional, Set, Any
+from typing import Dict, Union, Tuple, Optional, Set, Any
 
 import numpy as np
-import tvm
 from tvm import ir, runtime, relay, transform
 
 from .util import default_font_name
@@ -93,8 +92,7 @@ class Workload:
         :param config: Configurations of building workload.
         """
         with transform.PassContext(opt_level=0, config=config):
-            self.executor = relay.create_executor(kind='graph', mod=self.mod,
-                                                  ctx=tvm.context(target), target=target)
+            self.executor = relay.create_executor(kind='graph', mod=self.mod, target=target)
             self.func = self.executor.evaluate()
 
     def __call__(self, **inputs) -> np.ndarray:

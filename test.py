@@ -3,7 +3,7 @@ import unittest
 from tvm import relay
 
 import rule
-from gsl import pat, Workload, Subst, fold
+from gsl import pat, Workload, Subst
 
 
 class MatchTest(unittest.TestCase):
@@ -180,8 +180,7 @@ class RuleTest(unittest.TestCase):
             rule.lower_batch_norm(),
             rule.conv_mul(),
         ]:
-            wl = subst(wl, fast_mode=True, fold_params=False)
-        wl = fold(wl)
+            wl = subst(wl)
         print(wl.mod)
         self.assertTrue(True)
 

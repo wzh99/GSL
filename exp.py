@@ -143,7 +143,7 @@ class SimplifyTranspose(SubstTest):
 class FullElementWise(SubstTest):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
-        full = relay.full_like(x, relay.const(2))
+        full = relay.full_like(x, relay.const(2.0))
         return relay.add(x, full)
 
     def get_pass(self) -> transform.Pass:  # 35
