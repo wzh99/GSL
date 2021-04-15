@@ -95,80 +95,6 @@ def _num_new_axis_attr(axis: attr.Attr, ndim: attr.Attr):
     return ndim - 1 - axis
 
 
-class SimplifyReshape(SubstTest):
-    def create_expr(self) -> relay.Expr:
-        x = relay.var('x', shape=(2, 4, 4))
-        x = relay.reshape(x, newshape=(2, 16))
-        x = relay.reshape(x, newshape=(2, 1, 16))
-        return relay.reshape(x, newshape=(2, 2, 8))
-
-    def get_pass(self) -> transform.Pass:  # 9
-        return relay.transform.SimplifyExpr()
-
-    def define_gsl(self) -> Optional[Subst]:  # 4
-        x = pat.Wildcard()
-        src = op.Reshape(op.Reshape(x))
-        tgt = op.Reshape(x, newshape=src.newshape)
-        return Subst(src, tgt)
-
-
-class SimplifyTranspose(SubstTest):
-    def create_expr(self) -> relay.Expr:
-        x = relay.var('x', shape=(2, 4, 6, 8))
-        x = relay.transpose(x)
-        x = relay.transpose(x, axes=(0, 3, 1, 2))
-        return relay.transpose(x, axes=(3, 1, 0, 2))
-
-    def get_pass(self) -> transform.Pass:  # 42
-        return relay.transform.SimplifyExpr()
-
-    def define_gsl(self) -> Optional[Subst]:  # 10
-        x = pat.Wildcard()
-        trans1 = op.Transpose(x)
-        trans2 = op.Transpose(trans1)
-
-        axes1 = self._get_axes(trans1.axes, x.ndim)
-        axes2 = self._get_axes(trans2.axes, x.ndim)
-        axes = attr.Map(axes2, lambda a: axes1[a])
-        trans = pat.Cond(axes == attr.Range(x.ndim), x, op.Transpose(x, axes))
-
-        return Subst(trans2, trans)
-
-    @staticmethod
-    def _get_axes(axes: attr.Attr, ndim: attr.Attr):
-        return attr.Cond(axes == attr.NoneAttr(), attr.Reverse(attr.Range(ndim)),
-                         attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
-
-
-class FullElementWise(SubstTest):
-    def create_expr(self) -> relay.Expr:
-        x = relay.var('x', shape=(2, 4, 4))
-        full = relay.full_like(x, relay.const(2.0))
-        return relay.add(x, full)
-
-    def get_pass(self) -> transform.Pass:  # 35
-        return relay.transform.SimplifyExpr()
-
-    def define_gsl(self) -> Optional[Subst]:  # 14
-        x = pat.Wildcard()
-        val = pat.Const()
-        liked = pat.Wildcard()
-        liked.injective = False
-
-        full = pat.Alt(op.Full(val), op.FullLike(liked, val))
-        ones = pat.Alt(op.Ones(), op.OnesLike(liked))
-        zeros = pat.Alt(op.Zeros(), op.ZerosLike(liked))
-        scalar = pat.Alt(full, ones, zeros)
-        ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
-        src = pat.Alt(op.Call(ew_op, x, scalar), op.Call(ew_op, scalar, x))
-
-        const = pat.Const(attr.Match(scalar, [val.value, 1, 0]), dtype=x.dtype)
-        tgt = pat.Cond(x.shape == src.shape,
-                       pat.Match(src, [pat.Call(ew_op, x, const), pat.Call(ew_op, const, x)]), src)
-
-        return Subst(src, tgt)
-
-
 class ConcretizeZerosLike(SubstTest):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
@@ -250,6 +176,84 @@ class ConcretizeBroadcastToLike(SubstTest):
         return Subst(src, tgt)
 
 
+class SimplifyReshape(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        x = relay.reshape(x, newshape=(2, 16))
+        x = relay.reshape(x, newshape=(2, 1, 16))
+        return relay.reshape(x, newshape=(2, 2, 8))
+
+    def get_pass(self) -> transform.Pass:  # 9
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:  # 4
+        x = pat.Wildcard()
+        src = op.Reshape(op.Reshape(x))
+        tgt = op.Reshape(x, newshape=src.newshape)
+        return Subst(src, tgt)
+
+
+class SimplifyTranspose(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 6, 8))
+        x = relay.transpose(x)
+        x = relay.transpose(x, axes=(2, 1, 3, 0))
+        return relay.layout_transform(x, 'NCHW', 'NHWC')
+
+    def get_pass(self) -> transform.Pass:  # 46
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:  # 13
+        x = pat.Wildcard()
+        tp1, lt1 = op.Transpose(x), op.LayoutTransform(x)
+        t1 = pat.Alt(tp1, lt1)
+        tp2, lt2 = op.Transpose(t1), op.LayoutTransform(t1)
+        t2 = pat.Alt(tp2, lt2)
+
+        axes1 = attr.Match(t1, [tp1.axes, attr.LayoutRemap(lt1.src_layout, lt1.dst_layout)])
+        axes1 = self._adjust_axes(axes1, x.ndim)
+        axes2 = attr.Match(t2, [tp2.axes, attr.LayoutRemap(lt2.src_layout, lt2.dst_layout)])
+        axes2 = self._adjust_axes(axes2, x.ndim)
+        axes = attr.Map(axes2, lambda a: axes1[a])
+        tgt = pat.Cond(axes == attr.Range(x.ndim), x, op.Transpose(x, axes))
+
+        return Subst(t2, tgt)
+
+    @staticmethod
+    def _adjust_axes(axes: attr.Attr, ndim: attr.Attr):
+        return attr.Cond(axes == attr.NoneAttr(), attr.Reverse(attr.Range(ndim)),
+                         attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
+
+
+class FullElementWise(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4))
+        full = relay.full_like(x, relay.const(2.0))
+        return relay.add(x, full)
+
+    def get_pass(self) -> transform.Pass:  # 35
+        return relay.transform.SimplifyExpr()
+
+    def define_gsl(self) -> Optional[Subst]:  # 14
+        x = pat.Wildcard()
+        val = pat.Const()
+        liked = pat.Wildcard()
+        liked.injective = False
+
+        full = pat.Alt(op.Full(val), op.FullLike(liked, val))
+        ones = pat.Alt(op.Ones(), op.OnesLike(liked))
+        zeros = pat.Alt(op.Zeros(), op.ZerosLike(liked))
+        scalar = pat.Alt(full, ones, zeros)
+        ew_op = pat.OpWithTrait(spec.OpTrait.ELEMENT_WISE)
+        src = pat.Alt(op.Call(ew_op, x, scalar), op.Call(ew_op, scalar, x))
+
+        const = pat.Const(attr.Match(scalar, [val.value, 1, 0]), dtype=x.dtype)
+        tgt = pat.Cond(x.shape == src.shape,
+                       pat.Match(src, [pat.Call(ew_op, x, const), pat.Call(ew_op, const, x)]), src)
+
+        return Subst(src, tgt)
+
+
 class EliminateIdentity(SubstTest):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 1, 4))
@@ -275,6 +279,43 @@ class EliminateIdentity(SubstTest):
         tgt = pat.Cond(x.shape == src.shape, x, op.BroadcastTo(x, src.shape))
 
         return Subst(src, tgt)
+
+
+class SimplifyPadConv(SubstTest):
+    def create_expr(self) -> relay.Expr:
+        x = relay.var('x', shape=(2, 4, 4, 4))
+        pad = relay.nn.pad(x, ((0, 0), (0, 0), (1, 0), (0, 1)))
+        w = relay.var('w', shape=(4, 4, 3, 3))
+        return relay.nn.conv2d(pad, w, padding=(0, 1, 1, 0))
+
+    def get_pass(self) -> transform.Pass:  # 56
+        return relay.transform.FoldExplicitPadding()
+
+    def define_gsl(self) -> Optional[Subst]:  # 21
+        x = pat.Wildcard()
+        w = pat.Wildcard()
+
+        pad = op.Pad(x, pad_value=0.0, pad_mode='constant')
+        op_names = ['nn.conv1d', 'nn.conv2d', 'nn.conv3d']
+        conv_op = pat.Alt(*[pat.ConcreteOp(name) for name in op_names])
+        conv = pat.Call(conv_op, pad, w)
+
+        width = pad.pad_width
+        layout = conv.data_layout
+        spacial_dims = ('H', 'W', 'D')
+        can_merge = attr.ReduceIndexed(
+            attr.BinaryOp.AND,
+            lambda i: attr.In(layout[i], spacial_dims) | (width[i][0] + width[i][1] == 0), x.ndim)
+        pad_padding = attr.ReduceIndexed(
+            attr.BinaryOp.ADD, lambda i: attr.Cond(attr.In(layout[i], spacial_dims), width[i], ()),
+            x.ndim, init=())
+        new_padding = attr.Map(attr.Zip([conv.padding, pad_padding]), lambda p: p[0] + p[1])
+        conv_attrs = ['strides', 'dilation', 'groups', 'data_layout', 'kernel_layout', 'out_dtype',
+                      'out_layout']
+        new_conv = pat.Call(conv_op, x, w, padding=new_padding, **pat.same_attr(conv, conv_attrs))
+        tgt = pat.Cond(can_merge, new_conv, conv)
+
+        return Subst(conv, tgt)
 
 
 class SimplifyBiasAdd(SubstTest):
@@ -715,16 +756,18 @@ class CombineParallelBatchMatmul(SubstTest):
 
 
 if __name__ == '__main__':
+    relay.transform.FoldScaleAxis()
     for cls in [
-        # SimplifyReshape,
-        # SimplifyTranspose,
-        # FullElementWise,
         # ConcretizeZerosLike,
         # ConcretizeOnesLike,
         # ConcretizeReshapeLike,
         # ConcretizeCollapseSumLike,
         # ConcretizeBroadcastToLike,
+        # SimplifyReshape,
+        # SimplifyTranspose,
+        # FullElementWise,
         # EliminateIdentity,
+        # SimplifyPadConv,
         # SimplifyBiasAdd,
         # LowerBatchNorm,
         # LowerLayerNorm,

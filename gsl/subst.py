@@ -266,7 +266,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
         super().visit_call(call, env)
 
         # Check if all non-default attributes are provided for concrete op
-        if isinstance(call.op_, pat.ConcreteOp):
+        if isinstance(call.op_, pat.ConcreteOp) and not call.in_src:
             op_name = call.op_.name_
             api = spec.get_api(op_name)
             num_input = spec.get_num_inputs(op_name)
@@ -281,7 +281,7 @@ class _TgtPatChecker(PatternVisitor[Env]):
                         tuple(required), call.op_)
                 )
 
-        # Check if all attribute expressions only contain reference to nodes in source graph
+        # Check arguments
         for a in call.attrs_.values():
             self.attr_checker.visit(a, env)
 

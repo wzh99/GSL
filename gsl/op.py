@@ -124,6 +124,15 @@ class Transpose(Call):
         }))
 
 
+class LayoutTransform(Call):
+    def __init__(self, data: PatternLike,
+                 src_layout: Union[str, Attr, None] = None,
+                 dst_layout: Union[str, Attr, None] = None):
+        super().__init__('layout_transform', data, **pat.filter_attrs({
+            'src_layout': src_layout, 'dst_layout': dst_layout,
+        }))
+
+
 class ExpandDims(Call):
     def __init__(self, data: PatternLike,
                  axis: Union[int, Attr, None] = None,

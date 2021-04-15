@@ -206,6 +206,27 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
             )
         return self.visit(match.clauses_[alt.matched_idx_], env)
 
+    def visit_layout_remap(self, remap: attr.LayoutRemap, env: Env):
+        src = self.visit(remap.src_, env)
+        if not isinstance(src, str):
+            raise RuntimeError(
+                'Source layout is not a string.'
+            )
+        tgt = self.visit(remap.tgt_, env)
+        if not isinstance(tgt, str):
+            raise RuntimeError(
+                'Target layout is not a string.'
+            )
+        indices: List[int] = []
+        for c in tgt:
+            idx = src.find(c)
+            if idx == -1:
+                raise RuntimeError(
+                    'Cannot convert layout from \'{}\' to \'{}\'.'.format(src, tgt)
+                )
+            indices.append(idx)
+        return tuple(indices)
+
     def visit_symbol(self, sym: attr.Symbol, env: Env):
         val = env[sym]
         if val is None:
@@ -229,9 +250,15 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
 
         return fields
 
+    def visit_in(self, in_tup: attr.In, env: Env):
+        return self.visit(in_tup.val_, env) in self.visit(in_tup.tup_, env)
+
     def visit_map(self, m: attr.Map, env: Env):
         tup = self.visit(m.tup_, env)
         return tuple(map(lambda e: self.visit(m.body_, env + (m.sym_, e)), tup))
+
+    def visit_zip(self, z: attr.Zip, env: Env):
+        return tuple(zip(*[self.visit(tup, env) for tup in z.tuples_]))
 
     def visit_reduce_indexed(self, red: attr.ReduceIndexed, env: Env):
         length = self.visit(red.len_, env)

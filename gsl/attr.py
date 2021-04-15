@@ -274,6 +274,25 @@ class GetSlice(Attr):
         return visitor.visit_getslice(self, arg)
 
 
+class In(Attr):
+    """
+    Check if a value is an element of a tuple.
+    """
+
+    def __init__(self, val: AttrLike, tup: AttrLike):
+        super().__init__()
+        self.val_ = to_attr(val)
+        self.tup_ = to_attr(tup)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.val_, self.tup_]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_in(self, arg)
+
+
 class Reverse(Attr):
     def __init__(self, tup: Attr):
         super().__init__()
@@ -476,6 +495,25 @@ class Match(Attr):
         return visitor.visit_match(self, arg)
 
 
+class LayoutRemap(Attr):
+    """
+    Produce index tuple that performs layout remapping.
+    """
+
+    def __init__(self, src: AttrLike, tgt: AttrLike):
+        super().__init__()
+        self.src_ = to_attr(src)
+        self.tgt_ = to_attr(tgt)
+        self._update_free_sym()
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return [self.src_, self.tgt_]
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_layout_remap(self, arg)
+
+
 class Symbol(Attr):
     """
     A language symbol which can be mapped to attribute value.
@@ -567,6 +605,23 @@ class Map(Attr):
 
     def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
         return visitor.visit_map(self, arg)
+
+
+class Zip(Attr):
+    """
+    Zip one or more tuples.
+    """
+
+    def __init__(self, tuples: List[AttrLike]):
+        super().__init__()
+        self.tuples_ = [to_attr(tup) for tup in tuples]
+
+    @property
+    def sub_expr(self) -> List['Attr']:
+        return self.tuples_
+
+    def accept(self, visitor: 'AttrVisitor', arg: 'ArgType'):
+        return visitor.visit_zip(self, arg)
 
 
 reduce_init: Dict[BinaryOp, ty.Any] = {
@@ -682,6 +737,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
         self.visit(getslice.tup_, arg)
         self.visit(getslice.slc_, arg)
 
+    def visit_in(self, in_tup: In, arg: ArgType):
+        self.visit(in_tup.val_, arg)
+        self.visit(in_tup.tup_, arg)
+
     def visit_reverse(self, rev: Reverse, arg: ArgType):
         self.visit(rev.tup_, arg)
 
@@ -701,6 +760,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
         for c in match.clauses_:
             self.visit(c, arg)
 
+    def visit_layout_remap(self, remap: LayoutRemap, arg: ArgType):
+        self.visit(remap.src_, arg)
+        self.visit(remap.tgt_, arg)
+
     def visit_symbol(self, sym: Symbol, arg: ArgType):
         pass
 
@@ -709,6 +772,10 @@ class AttrVisitor(Generic[ArgType, RetType]):
 
     def visit_map(self, m: Map, arg: ArgType):
         pass
+
+    def visit_zip(self, z: Zip, arg: ArgType):
+        for tup in z.tuples_:
+            self.visit(tup, arg)
 
     def visit_reduce_indexed(self, red: ReduceIndexed, arg: ArgType):
         pass

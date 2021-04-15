@@ -21,7 +21,7 @@ def cvt_ir_value(val) -> Any:
     elif isinstance(val, runtime.String):
         return str(val)
     elif isinstance(val, ir.Array):
-        return [cvt_ir_value(e) for e in val]
+        return tuple([cvt_ir_value(e) for e in val])
     elif isinstance(val, runtime.NDArray):
         return val.asnumpy()
     else:
