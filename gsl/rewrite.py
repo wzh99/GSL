@@ -1,4 +1,4 @@
-from typing import Set, List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 
 import numpy as np
 from tvm import relay
@@ -6,13 +6,18 @@ from tvm import relay
 from . import pat, spec, util
 from .attr import Attr, Env
 from .eval import PatExprMap, ExprTypeMap, EvalHistory, AttrEvaluator, eval_get_inst
-from .match import Matcher, relay_types
+from .match import Matcher, matched_types
 from .pat import Pattern, PatternVisitor
 
 SuccListMap = Dict[relay.Expr, List[relay.Expr]]
 
 
 class ExprRewriter:
+    class StackElem:
+        def __init__(self, e: relay.Expr, count: int):
+            self.expr = e
+            self.count = count
+
     def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], variadic: bool,
                  fast_mode: bool):
         self.src_outs = src_outs
@@ -20,7 +25,9 @@ class ExprRewriter:
         self.variadic = variadic
         self.fast_mode = fast_mode
         self.ty_map: ExprTypeMap = {}
-        self.history = set()
+        self.stack: List[ExprRewriter.StackElem] = []
+        self.traversed: Set[relay.Expr] = set()
+        self.history: Set[relay.Expr] = set()
 
     def rewrite(self, expr: relay.Expr) -> relay.Expr:
         # Build expression type map
@@ -35,14 +42,18 @@ class ExprRewriter:
         # Build successor list for all expression nodes
         succ_list = self.build_succ_list(expr)
 
+        # Initialize stack
+        self.stack.append(self.StackElem(expr, 0))
+
         # Greedily match all subgraphs
+        subst_map: Dict[relay.Expr, relay.Expr] = {}
         while True:
             # Find matched expressions with patterns
             pat_to_expr = PatExprMap()
             if self.variadic:  # match variadic with different procedure
                 # noinspection PyTypeChecker
                 src_var: pat.Variadic = self.src_outs[0]
-                src_matched = self.match_variadic(src_var, expr, pat_to_expr, succ_list)
+                src_matched = self.match_variadic(src_var, pat_to_expr, succ_list)
                 if len(src_matched) == 0:
                     break
                 elif src_var.min_len_ is not None and len(src_matched) < src_var.min_len_:
@@ -51,7 +62,7 @@ class ExprRewriter:
                     continue
 
             else:
-                fst_matched = self.match_one(self.src_outs[0], expr, pat_to_expr)
+                fst_matched = self.match_one(self.src_outs[0], pat_to_expr)
                 if fst_matched is None:
                     break  # even the first output pattern node is not matched
                 src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
@@ -72,68 +83,55 @@ class ExprRewriter:
                 eval_his: EvalHistory = {}
                 tgt_expr = [_RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(tgt, Env())
                             for tgt in self.tgt_outs]
-            self.history.update(tgt_expr)
-            expr_map = dict(zip(src_matched, tgt_expr))
+            self.history.update(src_matched)
+            subst_map.update(zip(src_matched, tgt_expr))
 
-            # Rewrite expression
-            expr = _RewriteMutator(expr_map, self.ty_map).visit(expr)
-            succ_list = self.build_succ_list(expr)
-
-            # Clear instantiated patterns
+            # Clear temporary data in patterns
             self.clear_pat()
 
+        # Perform substitution
+        expr = _RewriteMutator(subst_map, self.ty_map).visit(expr)
+
+        # Clear up and exit
+        self.traversed.clear()
+        self.history.clear()
         self.clear_pat()
+
         return expr
 
-    def clear_pat(self):
-        for p in self.src_outs:
-            p.clear()
-        for p in self.tgt_outs:
-            p.clear()
-
-    def match_one(self, pattern: Pattern, expr: relay.Expr, pat_to_expr: PatExprMap) \
-            -> Optional[relay.Expr]:
+    def match_one(self, pattern: Pattern, pat_to_expr: PatExprMap) -> Optional[relay.Expr]:
         # Traverse the expression graph
-        class StackElem:
-            def __init__(self, e: relay.Expr, count: int):
-                self.expr = e
-                self.count = count
-
-        stack: List[StackElem] = [StackElem(expr, 0)]
-        visited: Set[relay.Expr] = {expr}
-
-        def update(e: relay.Expr):
-            if e not in visited:
-                stack.append(StackElem(e, 0))
-                visited.add(e)
-
-        while len(stack) > 0:
+        while len(self.stack) > 0:
             # Pop an element from stack
-            elem = stack.pop()
+            elem = self.stack.pop()
             cur_expr = elem.expr
 
             if elem.count == 0:
                 # Add children to stack if this expression is visited for the first time
-                stack.append(StackElem(cur_expr, 1))
-                for p in reversed(util.get_expr_pred(cur_expr)):
-                    update(p)
+                self.stack.append(self.StackElem(cur_expr, 1))
+                for ep in reversed(util.get_expr_pred(cur_expr)):
+                    self.push_stack(ep)
             else:
-                # Do not match this expression if it has been visited this round or is in match
-                # history
+                # Do not match this expression if it is in match history
                 if cur_expr in self.history:
                     continue
+                self.history.add(cur_expr)
 
                 # Use first pattern to roughly locate the subgraph
                 rec = pat_to_expr.record()
                 matcher = Matcher(pat_to_expr, self.ty_map)
                 res = matcher.match(pattern, cur_expr, Env())
                 if not res:
-                    self.history.add(cur_expr)
                     rec.restore()
                     continue  # even first pattern is not matched, skip this expression
                 return cur_expr
 
         return None
+
+    def push_stack(self, expr: relay.Expr):
+        if expr not in self.traversed:
+            self.stack.append(ExprRewriter.StackElem(expr, 0))
+            self.traversed.add(expr)
 
     reusable_pat = (pat.Wildcard, pat.Variable)
 
@@ -207,10 +205,10 @@ class ExprRewriter:
 
         return output_matched
 
-    def match_variadic(self, src_var: pat.Variadic, expr: relay.Expr, pat_to_expr: PatExprMap,
+    def match_variadic(self, src_var: pat.Variadic, pat_to_expr: PatExprMap,
                        succ_list: SuccListMap) -> List[relay.Expr]:
         # Search for first match of field pattern
-        fst_match = self.match_one(src_var.instantiate(), expr, pat_to_expr)
+        fst_match = self.match_one(src_var.instantiate(), pat_to_expr)
         if fst_match is None:
             return []  # no expression could be a match
 
@@ -283,6 +281,12 @@ class ExprRewriter:
             tgt_outs.append(_RelayBuilder(pat_to_expr, self.ty_map, eval_his).visit(inst, env))
         return tgt_outs
 
+    def clear_pat(self):
+        for p in self.src_outs:
+            p.clear()
+        for p in self.tgt_outs:
+            p.clear()
+
     @staticmethod
     def build_succ_list(expr: relay.Expr) -> SuccListMap:
         succ_visitor = _SuccListBuilder()
@@ -312,8 +316,7 @@ class _TypeMapper(relay.ExprVisitor):
 
     def visit(self, expr: relay.Expr):
         super().visit(expr)
-        if isinstance(expr, (relay.Constant, relay.Var, relay.Call, relay.Tuple,
-                             relay.TupleGetItem)):
+        if isinstance(expr, matched_types):
             ty = expr.checked_type
             self.ty_map[expr] = ty
 
@@ -446,17 +449,9 @@ class _RewriteMutator(relay.ExprMutator):
             new_expr = self.subst_map[expr]
             new_expr = _TgtUpdater(self.memo_map).visit(new_expr)
             self.memo_map[expr] = new_expr
-            if expr in self.ty_map:
-                self.ty_map[new_expr] = self.ty_map[expr]
-                del self.ty_map[expr]
-            return new_expr
         else:
-            ret = super().visit(expr)
-            if expr in self.ty_map:
-                self.ty_map[ret] = self.ty_map[expr]
-                if ret is not expr:
-                    del self.ty_map[expr]
-            return ret
+            new_expr = super().visit(expr)
+        return new_expr
 
 
 class _TgtUpdater(relay.ExprMutator):
@@ -475,7 +470,7 @@ class _SingleRewriter(relay.ExprMutator):
     def visit(self, pre: relay.Expr):
         # Rewrite predecessors
         mid = super().visit(pre)
-        if not isinstance(mid, relay_types):
+        if not isinstance(mid, matched_types):
             return mid
         if pre in self.ty_map:
             self.ty_map[mid] = self.ty_map[pre]

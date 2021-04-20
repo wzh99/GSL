@@ -52,8 +52,8 @@ class InceptionV3(AlgCmp):
         net, params = inception_v3.get_workload()
         return Workload(net, params)
 
-    def get_pass(self) -> Optional[transform.Pass]:
-        return relay.transform.CombineParallelConv2D(min_num_branches=2)
+    # def get_pass(self) -> Optional[transform.Pass]:
+    #     return relay.transform.CombineParallelConv2D(min_num_branches=2)
 
     def define_gsl(self) -> Subst:
         x = pat.Wildcard()

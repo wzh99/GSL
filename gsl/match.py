@@ -5,7 +5,7 @@ from . import attr, pat, spec, util
 from .attr import Attr, Env
 from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
 
-relay_types = (relay.Constant, relay.Var, relay.Call, relay.Tuple, relay.TupleGetItem)
+matched_types = (relay.Constant, relay.Var, relay.Call, relay.Tuple, relay.TupleGetItem)
 
 
 class Matcher:
