@@ -6,7 +6,7 @@ from tvm import relay
 from . import pat, spec, util
 from .attr import Attr, Env
 from .eval import PatExprMap, ExprTypeMap, EvalHistory, AttrEvaluator, eval_get_inst
-from .match import Matcher
+from .match import Matcher, relay_types
 from .pat import Pattern, PatternVisitor
 
 SuccListMap = Dict[relay.Expr, List[relay.Expr]]
@@ -32,11 +32,11 @@ class ExprRewriter:
         if self.fast_mode and len(self.src_outs) == 1 and not self.variadic:
             return _SingleRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
 
+        # Build successor list for all expression nodes
+        succ_list = self.build_succ_list(expr)
+
         # Greedily match all subgraphs
         while True:
-            # Build successor list for all expression nodes
-            succ_list = self.build_succ_list(expr)
-
             # Find matched expressions with patterns
             pat_to_expr = PatExprMap()
             if self.variadic:  # match variadic with different procedure
@@ -77,6 +77,7 @@ class ExprRewriter:
 
             # Rewrite expression
             expr = _RewriteMutator(expr_map, self.ty_map).visit(expr)
+            succ_list = self.build_succ_list(expr)
 
             # Clear instantiated patterns
             self.clear_pat()
@@ -497,6 +498,8 @@ class _SingleRewriter(relay.ExprMutator):
     def visit(self, pre: relay.Expr):
         # Rewrite predecessors
         mid = super().visit(pre)
+        if not isinstance(mid, relay_types):
+            return mid
         if pre in self.ty_map:
             self.ty_map[mid] = self.ty_map[pre]
 

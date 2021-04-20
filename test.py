@@ -404,6 +404,24 @@ class ModelTest(unittest.TestCase):
         wl.visualize()
         self.assertTrue(True)
 
+    def test_inception_v3(self):
+        print('Inception V3')
+
+        # Create model
+        from tvm.relay.testing import inception_v3
+        net, params = inception_v3.get_workload()
+        wl = Workload(net, params, name='inception_v3')
+
+        # Apply substitution
+        for subst in [
+            rule.lower_batch_norm(),
+            rule.conv_mul(),
+            rule.parallel_conv_variadic(),
+        ]:
+            wl = subst(wl, fast_mode=True)
+        wl.visualize()
+        self.assertTrue(True)
+
     def test_nasnet(self):
         print('NASNet')
 
@@ -450,7 +468,7 @@ class ModelTest(unittest.TestCase):
 if __name__ == '__main__':
     suite = unittest.TestSuite(tests=[
         # MatchTest('test_pyramid'),
-        # RuleTest('test_trans_trans'),
+        RuleTest('test_trans_trans'),
         # RuleTest('test_split_concat'),
         # RuleTest('test_split_concat_variadic'),
         # RuleTest('test_bias_add_add'),
@@ -469,6 +487,7 @@ if __name__ == '__main__':
         # RuleTest('test_parallel_dense'),
         # RuleTest('test_parallel_dense_variadic'),
         # ModelTest('test_resnet'),
+        # ModelTest('test_inception_v3'),
         # ModelTest('test_nasnet'),
         # ModelTest('test_transformer'),
     ])

@@ -134,17 +134,20 @@ def lower_batch_norm():
     x = pat.Wildcard()
     gamma = pat.Variable()
     beta = pat.Variable()
-    moving_mean = pat.Variable()
-    moving_var = pat.Variable()
+    mean = pat.Variable()
+    var = pat.Variable()
 
-    # Source pattern: batch_norm(x, gamma, beta, mean, var)
-    bn = op.BatchNorm(x, gamma, beta, moving_mean, moving_var, axis=1, scale=True, center=True)
+    # Source pattern
+    bn = op.BatchNorm(x, gamma, beta, mean, var)
     y1 = bn[0]
 
-    # Target pattern: k = gamma / sqrt(var + epsilon), x * k + beta - mean * k
-    k = gamma / op.Sqrt(moving_var + bn.epsilon)
-    bias = beta - moving_mean * k
-    y2 = op.BiasAdd(x * op.ExpandDims(k, axis=1, num_newaxis=2), bias)
+    # Target pattern
+    std = op.Sqrt(var + bn.epsilon)
+    k = pat.Cond(bn.scale, gamma / std, 1.0 / std)
+    bias = pat.Cond(bn.center, beta - mean * k, -mean * k)
+    n_new = x.ndim - 1 - bn.axis
+    k = pat.Cond(n_new > 0, op.ExpandDims(k, axis=1, num_newaxis=n_new), k)
+    y2 = op.BiasAdd(x * k, bias, axis=bn.axis)
 
     # Build substitution
     return Subst(y1, y2)

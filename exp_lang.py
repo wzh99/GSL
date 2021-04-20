@@ -7,7 +7,7 @@ from tvm.relay import dataflow_pattern as dfp
 from gsl import pat, op, attr, spec, Subst, Workload
 
 
-class SubstTest(dfp.DFPatternCallback):
+class LangCmp(dfp.DFPatternCallback):
     def __init__(self, viz_orig=False, viz_pass=False, viz_dfp=False, viz_gsl=False):
         super().__init__()
         self.viz_orig = viz_orig
@@ -95,7 +95,7 @@ def _num_new_axis_attr(axis: attr.Attr, ndim: attr.Attr):
     return ndim - 1 - axis
 
 
-class ConcretizeZerosLike(SubstTest):
+class ConcretizeZerosLike(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         return relay.zeros_like(x)
@@ -110,7 +110,7 @@ class ConcretizeZerosLike(SubstTest):
         return Subst(src, tgt)
 
 
-class ConcretizeOnesLike(SubstTest):
+class ConcretizeOnesLike(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         return relay.ones_like(x)
@@ -125,7 +125,7 @@ class ConcretizeOnesLike(SubstTest):
         return Subst(src, tgt)
 
 
-class ConcretizeReshapeLike(SubstTest):
+class ConcretizeReshapeLike(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         y = relay.var('y', shape=(2, 2, 8))
@@ -142,7 +142,7 @@ class ConcretizeReshapeLike(SubstTest):
         return Subst(src, tgt)
 
 
-class ConcretizeCollapseSumLike(SubstTest):
+class ConcretizeCollapseSumLike(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         y = relay.var('y', shape=(1, 4))
@@ -159,7 +159,7 @@ class ConcretizeCollapseSumLike(SubstTest):
         return Subst(src, tgt)
 
 
-class ConcretizeBroadcastToLike(SubstTest):
+class ConcretizeBroadcastToLike(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 1, 4))
         y = relay.var('y', shape=(2, 4, 4))
@@ -176,7 +176,7 @@ class ConcretizeBroadcastToLike(SubstTest):
         return Subst(src, tgt)
 
 
-class SimplifyReshape(SubstTest):
+class SimplifyReshape(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         x = relay.reshape(x, newshape=(2, 16))
@@ -193,7 +193,7 @@ class SimplifyReshape(SubstTest):
         return Subst(src, tgt)
 
 
-class SimplifyTranspose(SubstTest):
+class SimplifyTranspose(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 6, 8))
         x = relay.transpose(x)
@@ -225,7 +225,7 @@ class SimplifyTranspose(SubstTest):
                          attr.Map(axes, lambda a: _pos_axis_attr(a, ndim)))
 
 
-class FullElementWise(SubstTest):
+class FullElementWise(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         full = relay.full_like(x, relay.const(2.0))
@@ -254,7 +254,7 @@ class FullElementWise(SubstTest):
         return Subst(src, tgt)
 
 
-class EliminateIdentity(SubstTest):
+class EliminateIdentity(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 1, 4))
         zero = relay.zeros((2, 4, 4), 'float32')
@@ -281,7 +281,7 @@ class EliminateIdentity(SubstTest):
         return Subst(src, tgt)
 
 
-class SimplifyPadConv(SubstTest):
+class SimplifyPadConv(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4, 4))
         pad = relay.nn.pad(x, ((0, 0), (0, 0), (1, 0), (0, 1)))
@@ -318,7 +318,7 @@ class SimplifyPadConv(SubstTest):
         return Subst(conv, tgt)
 
 
-class SimplifyBiasAdd(SubstTest):
+class SimplifyBiasAdd(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -358,7 +358,7 @@ class SimplifyBiasAdd(SubstTest):
         return Subst(src, tgt)
 
 
-class LowerBatchNorm(SubstTest):
+class LowerBatchNorm(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -416,7 +416,7 @@ class LowerBatchNorm(SubstTest):
         return Subst(y1, y2)
 
 
-class LowerLayerNorm(SubstTest):
+class LowerLayerNorm(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -479,7 +479,7 @@ class LowerLayerNorm(SubstTest):
         return Subst(ln, center)
 
 
-class LowerGroupNorm(SubstTest):
+class LowerGroupNorm(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -553,7 +553,7 @@ class LowerGroupNorm(SubstTest):
         return Subst(gn, center)
 
 
-class LowerInstanceNorm(SubstTest):
+class LowerInstanceNorm(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -619,7 +619,7 @@ class LowerInstanceNorm(SubstTest):
         return Subst(inst_norm, center)
 
 
-class LowerL2Norm(SubstTest):
+class LowerL2Norm(LangCmp):
     def __init__(self):
         super().__init__()
 
@@ -647,7 +647,7 @@ class LowerL2Norm(SubstTest):
         return Subst(l2, result)
 
 
-class CombineParallelConv2D(SubstTest):
+class CombineParallelConv2D(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 2, 4, 4))
         w1 = relay.var('w1', shape=(2, 2, 3, 3))
@@ -687,7 +687,7 @@ class CombineParallelConv2D(SubstTest):
         return Subst(src, tgt)
 
 
-class CombineParallelDense(SubstTest):
+class CombineParallelDense(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 2))
         w1 = relay.var('w1', shape=(2, 2))
@@ -721,7 +721,7 @@ class CombineParallelDense(SubstTest):
         return Subst(src, tgt)
 
 
-class CombineParallelBatchMatmul(SubstTest):
+class CombineParallelBatchMatmul(LangCmp):
     def create_expr(self) -> relay.Expr:
         x = relay.var('x', shape=(2, 4, 4))
         y1 = relay.var('y1', shape=(2, 2, 4))
@@ -756,7 +756,6 @@ class CombineParallelBatchMatmul(SubstTest):
 
 
 if __name__ == '__main__':
-    relay.transform.FoldScaleAxis()
     for cls in [
         # ConcretizeZerosLike,
         # ConcretizeOnesLike,

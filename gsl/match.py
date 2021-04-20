@@ -5,6 +5,8 @@ from . import attr, pat, spec, util
 from .attr import Attr, Env
 from .eval import PatExprMap, ExprTypeMap, AttrEvaluator, eval_get_inst
 
+relay_types = (relay.Constant, relay.Var, relay.Call, relay.Tuple, relay.TupleGetItem)
+
 
 class Matcher:
     def __init__(self, pat_to_expr: PatExprMap, ty_map: ExprTypeMap):
