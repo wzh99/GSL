@@ -468,7 +468,7 @@ class ModelTest(unittest.TestCase):
 if __name__ == '__main__':
     suite = unittest.TestSuite(tests=[
         # MatchTest('test_pyramid'),
-        RuleTest('test_trans_trans'),
+        # RuleTest('test_trans_trans'),
         # RuleTest('test_split_concat'),
         # RuleTest('test_split_concat_variadic'),
         # RuleTest('test_bias_add_add'),

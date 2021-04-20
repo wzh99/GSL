@@ -444,6 +444,7 @@ class _RewriteMutator(relay.ExprMutator):
     def visit(self, expr: relay.Expr):
         if expr in self.subst_map:
             new_expr = self.subst_map[expr]
+            new_expr = _TgtUpdater(self.memo_map).visit(new_expr)
             if expr in self.ty_map:
                 self.ty_map[new_expr] = self.ty_map[expr]
                 del self.ty_map[expr]
@@ -486,6 +487,12 @@ class _RewriteMutator(relay.ExprMutator):
             if ret != a:
                 changed = True
         return new_args, changed
+
+
+class _TgtUpdater(relay.ExprMutator):
+    def __init__(self, memo_map: Dict[relay.Expr, relay.Expr]):
+        super().__init__()
+        self.memo_map = memo_map
 
 
 class _SingleRewriter(relay.ExprMutator):
