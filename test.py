@@ -429,10 +429,6 @@ class ModelTest(unittest.TestCase):
         from model.nasnet import get_model, batch_shape_nchw
         net = get_model(1)
         wl = Workload.from_keras(net, {'input_1': batch_shape_nchw})
-        # import numpy as np
-        # x_in = np.random.rand(*batch_shape_nchw)
-        # wl.build(target='metal')
-        # y1 = wl(input_1=x_in)
 
         # Apply substitution
         for subst in [
@@ -444,8 +440,6 @@ class ModelTest(unittest.TestCase):
         ]:
             wl = subst(wl, fast_mode=True)
         wl.visualize()
-        # wl.build(target='metal')
-        # y2 = wl(input_1=x_in)
         self.assertTrue(True)
 
     def test_transformer(self):

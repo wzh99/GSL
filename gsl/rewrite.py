@@ -445,6 +445,7 @@ class _RewriteMutator(relay.ExprMutator):
         if expr in self.subst_map:
             new_expr = self.subst_map[expr]
             new_expr = _TgtUpdater(self.memo_map).visit(new_expr)
+            self.memo_map[expr] = new_expr
             if expr in self.ty_map:
                 self.ty_map[new_expr] = self.ty_map[expr]
                 del self.ty_map[expr]
@@ -456,37 +457,6 @@ class _RewriteMutator(relay.ExprMutator):
                 if ret is not expr:
                     del self.ty_map[expr]
             return ret
-
-    def visit_call(self, call: relay.Call):
-        new_args, changed = self._visit_args(call.args)
-        if changed:
-            return relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
-        else:
-            return call
-
-    def visit_tuple(self, tup: relay.Tuple):
-        new_fields, changed = self._visit_args(tup.fields)
-        if changed:
-            return relay.Tuple(new_fields, span=tup.span)
-        else:
-            return tup
-
-    def visit_tuple_getitem(self, getitem: relay.TupleGetItem):
-        new_tup, changed = self._visit_args([getitem.tuple_value])
-        if changed:
-            return relay.TupleGetItem(new_tup[0], getitem.index)
-        else:
-            return getitem
-
-    def _visit_args(self, args: List[relay.Expr]):
-        changed = False
-        new_args = []
-        for a in args:
-            ret = self.visit(a)
-            new_args.append(ret)
-            if ret != a:
-                changed = True
-        return new_args, changed
 
 
 class _TgtUpdater(relay.ExprMutator):
