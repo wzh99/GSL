@@ -18,12 +18,10 @@ class ExprRewriter:
             self.expr = e
             self.count = count
 
-    def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], variadic: bool,
-                 fast_mode: bool):
+    def __init__(self, src_outs: List[Pattern], tgt_outs: List[Pattern], variadic: bool):
         self.src_outs = src_outs
         self.tgt_outs = tgt_outs
         self.variadic = variadic
-        self.fast_mode = fast_mode
         self.ty_map: ExprTypeMap = {}
         self.stack: List[ExprRewriter.StackElem] = []
         self.traversed: Set[relay.Expr] = set()
@@ -35,8 +33,8 @@ class ExprRewriter:
         mapper.visit(expr)
         self.ty_map = mapper.ty_map
 
-        # Use fast mode if possible
-        if self.fast_mode and len(self.src_outs) == 1 and not self.variadic:
+        # Use single pattern rewriter if possible
+        if len(self.src_outs) == 1 and not self.variadic:
             return _SingleRewriter(self.src_outs[0], self.tgt_outs[0], self.ty_map).visit(expr)
 
         # Build successor list for all expression nodes
@@ -446,8 +444,8 @@ class _RewriteMutator(relay.ExprMutator):
 
     def visit(self, expr: relay.Expr):
         if expr in self.subst_map:
-            new_expr = self.subst_map[expr]
-            new_expr = _TgtUpdater(self.memo_map).visit(new_expr)
+            super().visit(expr)
+            new_expr = _TgtUpdater(self.memo_map).visit(self.subst_map[expr])
             self.memo_map[expr] = new_expr
         else:
             new_expr = super().visit(expr)
