@@ -62,7 +62,7 @@ class LangCmp(dfp.DFPatternCallback):
         # Use GSL for substitution
         rule = self.define_gsl()
         if rule is not None:
-            gsl_wl = rule(wl, fast_mode=True, fold_params=False)
+            gsl_wl = rule(wl, fold_params=False)
             print('After GSL substitution:')
             print(gsl_wl.mod)
             if self.viz_gsl:

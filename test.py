@@ -418,7 +418,7 @@ class ModelTest(unittest.TestCase):
             rule.conv_mul(),
             rule.parallel_conv_variadic(),
         ]:
-            wl = subst(wl, fast_mode=True)
+            wl = subst(wl)
         wl.visualize()
         self.assertTrue(True)
 
@@ -438,7 +438,7 @@ class ModelTest(unittest.TestCase):
             rule.bias_add_add(),
             rule.two_conv_add(),
         ]:
-            wl = subst(wl, fast_mode=True)
+            wl = subst(wl)
         wl.visualize()
         self.assertTrue(True)
 

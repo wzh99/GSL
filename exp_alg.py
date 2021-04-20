@@ -1,25 +1,17 @@
-from time import time
-from typing import Optional
+from typing import Optional, List
 
 from tvm import transform, relay
 
 from gsl import attr, op, pat, Workload, Subst
-
-
-class Timer:
-    def __init__(self):
-        self.time = 0
-
-    def begin(self):
-        self.time = time()
-
-    def end(self):
-        return time() - self.time
+from gsl.util import Timer
 
 
 class AlgCmp:
     def create_workload(self) -> Workload:
         raise NotImplementedError()
+
+    def pre_passes(self) -> List[transform.Pass]:
+        return []
 
     def get_pass(self) -> Optional[transform.Pass]:
         pass
@@ -31,6 +23,10 @@ class AlgCmp:
         # Create workload
         wl = self.create_workload()
 
+        # Perform preliminary passes to avoid assertion error
+        for p in self.pre_passes():
+            wl.mod = p(wl.mod)
+
         # Apply pass
         timer = Timer()
         f_pass = self.get_pass()
@@ -41,9 +37,8 @@ class AlgCmp:
 
         # Apply GSL rule
         subst = self.define_gsl()
-        timer.begin()
+        Subst.profile = True
         subst(wl, fold_params=False)
-        print(f'GSL: {timer.end()} s')
 
 
 class InceptionV3(AlgCmp):
@@ -52,8 +47,11 @@ class InceptionV3(AlgCmp):
         net, params = inception_v3.get_workload()
         return Workload(net, params)
 
-    # def get_pass(self) -> Optional[transform.Pass]:
-    #     return relay.transform.CombineParallelConv2D(min_num_branches=2)
+    def pre_passes(self) -> List[transform.Pass]:
+        return [relay.transform.SimplifyInference()]
+
+    def get_pass(self) -> Optional[transform.Pass]:
+        return relay.transform.CombineParallelConv2D(min_num_branches=2)
 
     def define_gsl(self) -> Subst:
         x = pat.Wildcard()
@@ -87,6 +85,9 @@ class Transformer(AlgCmp):
     def create_workload(self) -> Workload:
         from model import transformer
         return transformer.get_workload(1, 64, 4, 128)
+
+    def pre_passes(self) -> List[transform.Pass]:
+        return [relay.transform.SimplifyInference()]
 
     def get_pass(self) -> Optional[transform.Pass]:
         return relay.transform.CombineParallelDense(min_num_branches=2, to_batch=False)

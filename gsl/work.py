@@ -34,12 +34,11 @@ class Workload:
         self.executor: Optional[relay.build_module.GraphExecutor] = None
         self.func = None
 
-    @staticmethod
-    def _cvt_param(x: Union[runtime.NDArray, np.ndarray]) -> np.ndarray:
+    def _cvt_param(self, x: Union[runtime.NDArray, np.ndarray]) -> np.ndarray:
         if isinstance(x, runtime.NDArray):
-            return np.array(x.asnumpy(), dtype=default_dtype)
+            return x.asnumpy().astype(self.dtype)
         else:
-            return np.array(x, dtype=default_dtype)
+            return x.astype(self.dtype)
 
     @staticmethod
     def from_expr(expr: relay.Expr, input_names: Set[str], dtype: str = default_dtype,

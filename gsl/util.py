@@ -1,3 +1,5 @@
+import sys
+from time import time
 from typing import Any, List
 
 from tvm import ir, tir, relay, runtime
@@ -5,8 +7,18 @@ from tvm import ir, tir, relay, runtime
 default_font_name = ''
 
 
+class Timer:
+    def __init__(self):
+        self.time = 0
+
+    def begin(self):
+        self.time = time()
+
+    def end(self):
+        return time() - self.time
+
+
 def _set_default_font_name():
-    import sys
     global default_font_name
     sys_name = sys.platform
     if sys_name == 'darwin':

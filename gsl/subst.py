@@ -7,6 +7,7 @@ from . import attr, pat, spec, fold
 from .attr import Env, AttrVisitor
 from .pat import Pattern, PatternVisitor
 from .rewrite import ExprRewriter
+from .util import Timer
 from .work import Workload
 
 
@@ -96,13 +97,14 @@ class Subst:
         self.src_outs = src_outs
         self.tgt_outs = tgt_outs
 
-    def __call__(self, wl: Workload, fast_mode: bool = False, fold_params: bool = True,
+    profile = False
+
+    def __call__(self, wl: Workload, fold_params: bool = True,
                  new_name: Optional[str] = None) -> Workload:
         """
         Apply substitution to workload.
 
         :param wl: Workload whose graph is to be altered.
-        :param fast_mode: Whether to use fast substitution algorithm for single output pattern.
         In this mode, unmatched successors of interior nodes will not be checked.
         :param fold_params: Whether to pre-compute nodes whose operands are already available in
             parameters.
@@ -114,7 +116,7 @@ class Subst:
             new_name = wl.name
 
         # Apply substitution to graph
-        rewriter = ExprRewriter(self.src_outs, self.tgt_outs, self.variadic, fast_mode)
+        rewriter = ExprRewriter(self.src_outs, self.tgt_outs, self.variadic)
         mod = _SubstFuncPass(rewriter)(wl.mod)
         new_wl = Workload(mod, wl.params, name=new_name)
         if fold_params:
@@ -349,7 +351,11 @@ class _SubstFuncPass:
 
     def transform_function(self, fn: relay.Function, _mod: ir.IRModule,
                            _ctx: transform.PassContext) -> relay.Function:
+        timer = Timer()
+        timer.begin()
         new_body = self.rewriter.rewrite(fn.body)
+        if Subst.profile:
+            print(f'GSL: {timer.end()} s')
         return relay.Function(relay.analysis.free_vars(new_body), new_body)
 
     def __call__(self, mod: ir.IRModule) -> ir.IRModule: ...
