@@ -28,7 +28,8 @@ class Pattern:
 
     def update_pred_succ(self):
         for p in self.pred:
-            p.succ_.append(self)
+            if self not in p.succ_:
+                p.succ_.append(self)
 
     @property
     def is_output(self) -> bool:
@@ -40,7 +41,7 @@ class Pattern:
 
     @property
     def src_succ(self) -> List['Pattern']:
-        return list(filter(lambda p: p.in_src and not p.is_tpl_, self.succ_))
+        return list(filter(lambda p: p.in_src, self.succ_))
 
     @property
     def is_used(self) -> bool:
@@ -526,13 +527,12 @@ class Variadic(Pattern):
         if templates is not None and len(templates) > 0:  # at least one pattern is a template
             if field not in templates:
                 raise ValueError(
-                    'Template pattern must be duplicated if any of its sub-pattern should be '
-                    'duplicated.'
+                    'Field pattern must be template if any of its sub-pattern is a template'
                 )
             if first is not None:
                 if len(templates) != len(first):
                     raise ValueError(
-                        'Number of first symbols must match number of duplicated symbols.'
+                        'Number of first patterns must match number of template patterns.'
                     )
             else:
                 first = [None] * len(templates)

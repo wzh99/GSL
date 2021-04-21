@@ -264,7 +264,6 @@ class ExprRewriter:
                 out_matched.append(e)
                 found = True
                 stack.clear()
-                break
 
             # No more match for this pattern
             if not found:
@@ -424,7 +423,7 @@ class _RelayBuilder(PatternVisitor[Env]):
         for i in range(length):
             new_env = env
             if var.index_ is not None:
-                new_env = env + (var.index_, i)
+                new_env += (var.index_, i)
             pat_f = var.instantiate()
             fields.append(self.visit(pat_f, new_env))
 

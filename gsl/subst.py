@@ -143,7 +143,8 @@ class _SrcPatChecker(PatternVisitor[Env]):
             )
         super().visit(p, env)
         p.src_idx_ = self.idx
-        p.update_pred_succ()
+        if not p.is_tpl_:
+            p.update_pred_succ()
 
     def visit_const(self, const: pat.Const, env: Env) -> Any:
         if isinstance(const.val_, attr.Attr):
@@ -243,7 +244,8 @@ class _TgtPatChecker(PatternVisitor[Env]):
             )
         super().visit(p, env)
         p.in_tgt_ = True
-        p.update_pred_succ()
+        if not p.is_tpl_:
+            p.update_pred_succ()
 
     def visit_wildcard(self, wildcard: pat.Wildcard, env: Env) -> Any:
         if wildcard not in self.src_nodes:
