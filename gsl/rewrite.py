@@ -65,7 +65,9 @@ class ExprRewriter:
                     break  # even the first output pattern node is not matched
                 src_matched = self.match_rest(pat_to_expr, fst_matched, succ_list)
                 if len(src_matched) == 0:  # the rest output nodes fail to match
-                    break
+                    self.history.add(fst_matched)
+                    self.clear_pat()
+                    continue
 
             # Check whether this subgraph has outgoing edges not described by source patterns
             if not self.check_succ(pat_to_expr, succ_list):
