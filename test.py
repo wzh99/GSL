@@ -280,7 +280,7 @@ class RuleTest(unittest.TestCase):
         print(wl.mod)
 
         # Apply substitution
-        subst = rule.parallel_conv()
+        subst = rule.parallel_two_conv()
         wl = subst(wl)
         print(wl.mod)
         self.assertTrue(True)

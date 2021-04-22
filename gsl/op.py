@@ -1,4 +1,4 @@
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 
 from . import pat
 from .attr import Attr
@@ -74,11 +74,11 @@ class BroadcastTo(Call):
 
 
 class Concatenate(Call):
-    def __init__(self, data: Union[Tuple[PatternLike, ...], pat.Variadic],
+    def __init__(self, data: Union[Tuple[PatternLike, ...], List[PatternLike], pat.Variadic],
                  axis: Union[int, Attr, None] = None):
         if isinstance(data, pat.Variadic):
             arg = data
-        elif isinstance(data, tuple):
+        elif isinstance(data, (tuple, list)):
             arg = pat.Tuple(*data)
         else:
             raise TypeError('Invalid type \'{}\' for input of \'concatenate\'.')

@@ -242,11 +242,11 @@ def dispatch_tuple():
     return Subst(src, tgt)
 
 
-def parallel_conv():
+def parallel_two_conv():
     # Input
     x = pat.Wildcard()
     w1 = pat.Variable()
-    w2 = pat.Variable(shape=w1.shape)
+    w2 = pat.Variable(shape=(None, None, w1.shape[2], w1.shape[3]))
 
     # Source pattern
     conv1 = op.Conv2D(x, w1, groups=1)
@@ -255,7 +255,7 @@ def parallel_conv():
     # Target pattern
     w = op.Concatenate((w1, w2), axis=0)
     conv = op.Conv2D(x, w, **pat.same_attr(conv1, ['strides', 'padding', 'dilation', 'groups']))
-    split = op.Split(conv, indices_or_sections=2, axis=1)
+    split = op.Split(conv, indices_or_sections=(w1.shape[0],), axis=1)
 
     # Build substitution
     return Subst([conv1, conv2], [split[0], split[1]])
