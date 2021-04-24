@@ -1,4 +1,3 @@
-from functools import reduce
 from typing import List, Dict, Callable, Union, Any, Optional, Generic, TypeVar, Set
 
 import numpy as np
@@ -85,11 +84,11 @@ class Pattern:
         return len(self.free_sym_) != 0
 
     def _update_free_sym(self):
-        self.free_sym_ = reduce(
-            set.union, map(lambda p: p.free_sym_, self.pred), set()
-        ).union(reduce(
-            set.union, map(lambda a: a.free_sym_, self.attr_expr), set()
-        )).difference(self.bounded_sym)
+        for p in self.pred:
+            self.free_sym_.update(p.free_sym_)
+        for a in self.attr_expr:
+            self.free_sym_.update(a.free_sym_)
+        self.free_sym_.difference_update(self.bounded_sym)
 
     def __getitem__(self, *item):
         return GetItem(self, item[0])

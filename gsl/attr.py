@@ -1,7 +1,6 @@
 import sys
 import typing as ty
 from enum import Enum
-from functools import reduce
 from typing import Union, Dict, Type, Callable, Generic, TypeVar, Optional, List, Set
 
 AttrPrimType = Union[bool, int, float, str]
@@ -16,6 +15,7 @@ class Attr:
 
     def __init__(self):
         self.free_sym_: Set[Symbol] = set()
+        self.ref_cnt_ = 0
 
     @property
     def sub_expr(self) -> List['Attr']:
@@ -30,9 +30,12 @@ class Attr:
         return len(self.free_sym_) != 0
 
     def _update_free_sym(self):
-        self.free_sym_ = reduce(
-            set.union, map(lambda a: a.free_sym_, self.sub_expr), set()
-        ).difference(self.bounded_sym)
+        for a in self.sub_expr:
+            self.free_sym_.update(a.free_sym_)
+        self.free_sym_.difference_update(self.bounded_sym)
+
+    def inc_ref_cnt(self):
+        self.ref_cnt_ += 1
 
     def __hash__(self):
         return hash(id(self))

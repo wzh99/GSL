@@ -65,13 +65,17 @@ class AttrEvaluator(attr.AttrVisitor[Env, Any]):
         self.eval_his = eval_his
 
     def visit(self, a: Attr, env: Env) -> Any:
-        if (self.eval_his is not None) and (not a.has_free_sym) and (a in self.eval_his):
+        mem = self.should_memoize(a)
+        if mem and (a in self.eval_his):
             return self.eval_his[a]
         else:
             val = util.cvt_ir_value(super().visit(a, env))
-            if (self.eval_his is not None) and (not a.has_free_sym):
+            if mem:
                 self.eval_his[a] = val
             return val
+
+    def should_memoize(self, a: Attr):
+        return (self.eval_his is not None) and (not a.has_free_sym) and (a.ref_cnt_ > 1)
 
     def visit_none(self, n: attr.NoneAttr, env: Env):
         return None
